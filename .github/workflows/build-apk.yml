@@ -27,8 +27,8 @@ jobs:
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.6
 
-      - name: Build Release APK
-        run: ./gradlew assembleRelease
+      - name: Build Debug APK
+        run: ./gradlew assembleDebug
 
       - name: Generate release tag
         id: tag
@@ -44,7 +44,7 @@ jobs:
           body: |
             Automated build from commit ${{ github.sha }}
             Branch: ${{ github.ref_name }}
-          files: app/build/outputs/apk/release/*.apk
+          files: app/build/outputs/apk/debug/*.apk
           draft: false
           prerelease: false
 
