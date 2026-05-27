@@ -65,14 +65,17 @@ class MainActivity : AppCompatActivity() {
             Snackbar.make(binding.root, getString(R.string.error_empty_name), Snackbar.LENGTH_SHORT).show()
             return
         }
-        BlockedContactsRepository.addContact(this, name)
+        if (!BlockedContactsRepository.addContact(this, name)) {
+            Snackbar.make(binding.root, getString(R.string.error_name_too_long), Snackbar.LENGTH_SHORT).show()
+            return
+        }
         binding.etContactName.text?.clear()
         refreshContactList()
     }
 
     private fun refreshContactList() {
         val contacts = BlockedContactsRepository.getBlockedContacts(this).toList()
-        adapter.submitList(contacts)
+        adapter.submitSortedList(contacts)
         binding.tvEmpty.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
         binding.rvContacts.visibility = if (contacts.isEmpty()) View.GONE else View.VISIBLE
     }

@@ -10,4 +10,6 @@
     <string name="blocked_contacts_title">Blocked Contacts</string>
     <string name="no_contacts">No blocked contacts yet</string>
     <string name="error_empty_name">Please enter a contact name</string>
+    <string name="error_name_too_long">Contact name is too long (max 100 characters)</string>
+    <string name="delete_contact">Delete contact</string>
 </resources>

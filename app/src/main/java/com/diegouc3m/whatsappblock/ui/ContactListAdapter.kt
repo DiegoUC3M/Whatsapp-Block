@@ -2,19 +2,17 @@ package com.diegouc3m.whatsappblock.ui
 
 import android.view.LayoutInflater
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.diegouc3m.whatsappblock.databinding.ItemContactBinding
 
 class ContactListAdapter(
     private val onDelete: (String) -> Unit
-) : RecyclerView.Adapter<ContactListAdapter.ViewHolder>() {
+) : ListAdapter<String, ContactListAdapter.ViewHolder>(StringDiffCallback()) {
 
-    private val items = mutableListOf<String>()
-
-    fun submitList(list: List<String>) {
-        items.clear()
-        items.addAll(list.sorted())
-        notifyDataSetChanged()
+    fun submitSortedList(list: List<String>) {
+        submitList(list.sorted())
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -25,10 +23,8 @@ class ContactListAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(items[position])
+        holder.bind(getItem(position))
     }
-
-    override fun getItemCount() = items.size
 
     inner class ViewHolder(private val binding: ItemContactBinding) :
         RecyclerView.ViewHolder(binding.root) {
@@ -37,5 +33,10 @@ class ContactListAdapter(
             binding.tvContactName.text = name
             binding.btnDelete.setOnClickListener { onDelete(name) }
         }
+    }
+
+    private class StringDiffCallback : DiffUtil.ItemCallback<String>() {
+        override fun areItemsTheSame(oldItem: String, newItem: String) = oldItem == newItem
+        override fun areContentsTheSame(oldItem: String, newItem: String) = oldItem == newItem
     }
 }

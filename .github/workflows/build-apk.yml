@@ -1,0 +1,50 @@
+name: Build APK & Release
+
+on:
+  push:
+    branches: ['**']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.6
+
+      - name: Build Release APK
+        run: ./gradlew assembleRelease
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          TAG="v1.0.0-build.$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA::7}"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: "Build ${{ steps.tag.outputs.tag }}"
+          body: |
+            Automated build from commit ${{ github.sha }}
+            Branch: ${{ github.ref_name }}
+          files: app/build/outputs/apk/release/*.apk
+          draft: false
+          prerelease: false
+
