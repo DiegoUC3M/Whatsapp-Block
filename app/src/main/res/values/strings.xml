@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">WhatsApp Block</string>
+    <string name="accessibility_service_label">WhatsApp Contact Blocker</string>
+    <string name="accessibility_service_description">Blocks WhatsApp chats from specific contacts by detecting their name on screen and navigating back automatically.</string>
+    <string name="service_status_active">✅ Service Active</string>
+    <string name="service_status_inactive">❌ Service Inactive</string>
+    <string name="btn_open_settings">Open Accessibility Settings</string>
+    <string name="btn_add">Add</string>
+    <string name="hint_contact_name">Contact name to block…</string>
+    <string name="blocked_contacts_title">Blocked Contacts</string>
+    <string name="no_contacts">No blocked contacts yet</string>
+    <string name="error_empty_name">Please enter a contact name</string>
+</resources>
