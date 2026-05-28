@@ -12,4 +12,9 @@
     <string name="error_empty_name">Please enter a contact name</string>
     <string name="error_name_too_long">Contact name is too long (max 100 characters)</string>
     <string name="delete_contact">Delete contact</string>
+    <string name="schedule_title">⏰ Block by schedule</string>
+    <string name="schedule_start">From: 00:00</string>
+    <string name="schedule_end">To: 23:59</string>
+    <string name="schedule_start_default">From: 00:00</string>
+    <string name="schedule_end_default">To: 23:59</string>
 </resources>

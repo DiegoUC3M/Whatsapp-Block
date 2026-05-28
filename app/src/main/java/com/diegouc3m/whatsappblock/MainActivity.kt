@@ -1,5 +1,6 @@
 package com.diegouc3m.whatsappblock
 
+import android.app.TimePickerDialog
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
@@ -24,6 +25,7 @@ class MainActivity : AppCompatActivity() {
 
         setupRecyclerView()
         setupListeners()
+        setupScheduleUI()
     }
 
     override fun onResume() {
@@ -59,6 +61,42 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun setupScheduleUI() {
+        val scheduleEnabled = BlockedContactsRepository.isScheduleEnabled(this)
+        binding.switchSchedule.isChecked = scheduleEnabled
+        binding.layoutScheduleTimes.visibility = if (scheduleEnabled) View.VISIBLE else View.GONE
+
+        refreshScheduleButtons()
+
+        binding.switchSchedule.setOnCheckedChangeListener { _, isChecked ->
+            BlockedContactsRepository.setScheduleEnabled(this, isChecked)
+            binding.layoutScheduleTimes.visibility = if (isChecked) View.VISIBLE else View.GONE
+        }
+
+        binding.btnStartTime.setOnClickListener {
+            val (h, m) = BlockedContactsRepository.getScheduleStart(this)
+            TimePickerDialog(this, { _, hour, minute ->
+                BlockedContactsRepository.setScheduleStart(this, hour, minute)
+                refreshScheduleButtons()
+            }, h, m, true).show()
+        }
+
+        binding.btnEndTime.setOnClickListener {
+            val (h, m) = BlockedContactsRepository.getScheduleEnd(this)
+            TimePickerDialog(this, { _, hour, minute ->
+                BlockedContactsRepository.setScheduleEnd(this, hour, minute)
+                refreshScheduleButtons()
+            }, h, m, true).show()
+        }
+    }
+
+    private fun refreshScheduleButtons() {
+        val (startH, startM) = BlockedContactsRepository.getScheduleStart(this)
+        val (endH, endM) = BlockedContactsRepository.getScheduleEnd(this)
+        binding.btnStartTime.text = String.format("From: %02d:%02d", startH, startM)
+        binding.btnEndTime.text = String.format("To: %02d:%02d", endH, endM)
+    }
+
     private fun addContact() {
         val name = binding.etContactName.text?.toString()?.trim() ?: ""
         if (name.isEmpty()) {
@@ -91,13 +129,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
-        val expectedComponent = "$packageName/.BlockerAccessibilityService"
+        val expectedComponent = "$packageName/${BlockerAccessibilityService::class.java.name}"
         val enabledServices = Settings.Secure.getString(
             contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
         return enabledServices.split(":").any {
-            it.equals(expectedComponent, ignoreCase = true)
+            it.equals(expectedComponent, ignoreCase = true) ||
+                it.equals("$packageName/.BlockerAccessibilityService", ignoreCase = true)
         }
     }
 }

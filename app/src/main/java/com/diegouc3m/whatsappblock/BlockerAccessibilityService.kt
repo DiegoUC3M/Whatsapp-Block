@@ -52,6 +52,9 @@ class BlockerAccessibilityService : AccessibilityService() {
         // Only react to window state changes (opening a chat) to reduce noise
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
+        // Check if we are within the active schedule
+        if (!BlockedContactsRepository.isWithinSchedule(applicationContext)) return
+
         val root = rootInActiveWindow ?: return
         try {
             if (isInsideBlockedChat(root)) {
