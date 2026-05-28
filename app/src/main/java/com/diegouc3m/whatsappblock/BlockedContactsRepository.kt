@@ -49,11 +49,17 @@ object BlockedContactsRepository {
 
     private const val PREFS_NAME = "whatsapp_blocker_prefs"
     private const val KEY_CONTACTS = "blocked_contacts"
-    private const val KEY_SCHEDULE_ENABLED = "schedule_enabled"
-    private const val KEY_SCHEDULE_SLOTS = "schedule_slots"
-    private const val KEY_SCHEDULE_SLOTS_ORDERED = "schedule_slots_ordered"
     private const val SLOT_SEPARATOR = "|"
     private const val MAX_CONTACT_NAME_LENGTH = 100
+
+    // Per-contact schedule key prefixes
+    private const val KEY_PREFIX_SCHEDULE_ENABLED = "contact_schedule_enabled_"
+    private const val KEY_PREFIX_SCHEDULE_SLOTS = "contact_schedule_slots_"
+
+    // Legacy global schedule keys (for migration)
+    private const val KEY_SCHEDULE_ENABLED_LEGACY = "schedule_enabled"
+    private const val KEY_SCHEDULE_SLOTS_LEGACY = "schedule_slots"
+    private const val KEY_SCHEDULE_SLOTS_ORDERED_LEGACY = "schedule_slots_ordered"
 
     private fun prefs(context: Context): SharedPreferences =
         context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -74,66 +80,106 @@ object BlockedContactsRepository {
     fun removeContact(context: Context, name: String) {
         val current = getBlockedContacts(context).toMutableSet()
         current.remove(name)
-        prefs(context).edit().putStringSet(KEY_CONTACTS, current).apply()
+        // Also remove per-contact schedule data
+        prefs(context).edit()
+            .putStringSet(KEY_CONTACTS, current)
+            .remove(KEY_PREFIX_SCHEDULE_ENABLED + name)
+            .remove(KEY_PREFIX_SCHEDULE_SLOTS + name)
+            .apply()
     }
 
-    // --- Schedule ---
+    // --- Per-Contact Schedule ---
 
-    fun isScheduleEnabled(context: Context): Boolean {
-        return prefs(context).getBoolean(KEY_SCHEDULE_ENABLED, false)
+    fun isContactScheduleEnabled(context: Context, contact: String): Boolean {
+        return prefs(context).getBoolean(KEY_PREFIX_SCHEDULE_ENABLED + contact, false)
     }
 
-    fun setScheduleEnabled(context: Context, enabled: Boolean) {
-        prefs(context).edit().putBoolean(KEY_SCHEDULE_ENABLED, enabled).apply()
+    fun setContactScheduleEnabled(context: Context, contact: String, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_PREFIX_SCHEDULE_ENABLED + contact, enabled).apply()
     }
 
-    fun getScheduleSlots(context: Context): List<TimeSlot> {
-        // Try ordered storage first, fall back to legacy StringSet for migration
-        val ordered = prefs(context).getString(KEY_SCHEDULE_SLOTS_ORDERED, null)
+    fun getContactScheduleSlots(context: Context, contact: String): List<TimeSlot> {
+        val raw = prefs(context).getString(KEY_PREFIX_SCHEDULE_SLOTS + contact, null)
+            ?: return emptyList()
+        if (raw.isEmpty()) return emptyList()
+        return raw.split(SLOT_SEPARATOR).mapNotNull { TimeSlot.deserialize(it) }
+    }
+
+    fun setContactScheduleSlots(context: Context, contact: String, slots: List<TimeSlot>) {
+        val serialized = slots.joinToString(SLOT_SEPARATOR) { it.serialize() }
+        prefs(context).edit()
+            .putString(KEY_PREFIX_SCHEDULE_SLOTS + contact, serialized)
+            .apply()
+    }
+
+    fun addContactScheduleSlot(context: Context, contact: String, slot: TimeSlot) {
+        val current = getContactScheduleSlots(context, contact).toMutableList()
+        current.add(slot)
+        setContactScheduleSlots(context, contact, current)
+    }
+
+    fun removeContactScheduleSlot(context: Context, contact: String, slot: TimeSlot) {
+        val current = getContactScheduleSlots(context, contact).toMutableList()
+        current.remove(slot)
+        setContactScheduleSlots(context, contact, current)
+    }
+
+    /**
+     * Returns true if blocking should be active right now for the given contact.
+     * If schedule is disabled for the contact, always returns true (blocking always active).
+     * If schedule is enabled, returns true only if current time is within ANY of the contact's time slots.
+     */
+    fun isWithinScheduleForContact(context: Context, contact: String): Boolean {
+        if (!isContactScheduleEnabled(context, contact)) return true
+        val slots = getContactScheduleSlots(context, contact)
+        if (slots.isEmpty()) return true // No slots configured = always active
+        return slots.any { it.isCurrentlyActive() }
+    }
+
+    /**
+     * Migrates legacy global schedule data to per-contact schedules.
+     * Should be called once on app startup. Applies the global schedule to all existing contacts.
+     */
+    fun migrateGlobalScheduleIfNeeded(context: Context) {
+        val p = prefs(context)
+        // Check if legacy global schedule exists
+        if (!p.contains(KEY_SCHEDULE_ENABLED_LEGACY) &&
+            !p.contains(KEY_SCHEDULE_SLOTS_ORDERED_LEGACY) &&
+            !p.contains(KEY_SCHEDULE_SLOTS_LEGACY)) {
+            return // Nothing to migrate
+        }
+
+        val globalEnabled = p.getBoolean(KEY_SCHEDULE_ENABLED_LEGACY, false)
+        val globalSlots = getGlobalSlotsLegacy(context)
+        val contacts = getBlockedContacts(context)
+
+        val editor = p.edit()
+        // Apply global schedule to each contact that doesn't already have per-contact config
+        for (contact in contacts) {
+            if (!p.contains(KEY_PREFIX_SCHEDULE_ENABLED + contact)) {
+                editor.putBoolean(KEY_PREFIX_SCHEDULE_ENABLED + contact, globalEnabled)
+                if (globalSlots.isNotEmpty()) {
+                    val serialized = globalSlots.joinToString(SLOT_SEPARATOR) { it.serialize() }
+                    editor.putString(KEY_PREFIX_SCHEDULE_SLOTS + contact, serialized)
+                }
+            }
+        }
+        // Remove legacy keys
+        editor.remove(KEY_SCHEDULE_ENABLED_LEGACY)
+        editor.remove(KEY_SCHEDULE_SLOTS_LEGACY)
+        editor.remove(KEY_SCHEDULE_SLOTS_ORDERED_LEGACY)
+        editor.apply()
+    }
+
+    private fun getGlobalSlotsLegacy(context: Context): List<TimeSlot> {
+        val p = prefs(context)
+        val ordered = p.getString(KEY_SCHEDULE_SLOTS_ORDERED_LEGACY, null)
         if (ordered != null) {
             if (ordered.isEmpty()) return emptyList()
             return ordered.split(SLOT_SEPARATOR).mapNotNull { TimeSlot.deserialize(it) }
         }
-        // Migrate from legacy StringSet storage
-        val raw = prefs(context).getStringSet(KEY_SCHEDULE_SLOTS, emptySet()) ?: emptySet()
-        val slots = raw.mapNotNull { TimeSlot.deserialize(it) }
-            .sortedBy { it.startHour * 60 + it.startMinute }
-        if (slots.isNotEmpty()) {
-            setScheduleSlots(context, slots)
-        }
-        return slots
-    }
-
-    fun setScheduleSlots(context: Context, slots: List<TimeSlot>) {
-        val serialized = slots.joinToString(SLOT_SEPARATOR) { it.serialize() }
-        prefs(context).edit()
-            .putString(KEY_SCHEDULE_SLOTS_ORDERED, serialized)
-            .remove(KEY_SCHEDULE_SLOTS) // Remove legacy key
-            .apply()
-    }
-
-    fun addScheduleSlot(context: Context, slot: TimeSlot) {
-        val current = getScheduleSlots(context).toMutableList()
-        current.add(slot)
-        setScheduleSlots(context, current)
-    }
-
-    fun removeScheduleSlot(context: Context, slot: TimeSlot) {
-        val current = getScheduleSlots(context).toMutableList()
-        current.remove(slot)
-        setScheduleSlots(context, current)
-    }
-
-    /**
-     * Returns true if blocking should be active right now based on schedule settings.
-     * If schedule is disabled, always returns true (blocking always active).
-     * If schedule is enabled, returns true if current time is within ANY of the time slots.
-     */
-    fun isWithinSchedule(context: Context): Boolean {
-        if (!isScheduleEnabled(context)) return true
-        val slots = getScheduleSlots(context)
-        if (slots.isEmpty()) return true // No slots configured = always active
-        return slots.any { it.isCurrentlyActive() }
+        val raw = p.getStringSet(KEY_SCHEDULE_SLOTS_LEGACY, emptySet()) ?: emptySet()
+        return raw.mapNotNull { TimeSlot.deserialize(it) }
     }
 
     fun registerListener(context: Context, listener: SharedPreferences.OnSharedPreferenceChangeListener) {

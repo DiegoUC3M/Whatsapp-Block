@@ -52,15 +52,16 @@ class BlockerAccessibilityService : AccessibilityService() {
         // Only react to window state changes (opening a chat) to reduce noise
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
-        // Check if we are within the active schedule
-        if (!BlockedContactsRepository.isWithinSchedule(applicationContext)) return
-
         val root = rootInActiveWindow ?: return
         try {
-            if (isInsideBlockedChat(root)) {
+            val blockedContact = findBlockedContactInChat(root)
+            if (blockedContact != null) {
+                // Check per-contact schedule
+                if (!BlockedContactsRepository.isWithinScheduleForContact(applicationContext, blockedContact)) return
+
                 val now = System.currentTimeMillis()
                 if (now - lastBackActionTime > BACK_ACTION_COOLDOWN_MS) {
-                    Log.d(TAG, "Blocked contact chat detected — navigating back")
+                    Log.d(TAG, "Blocked contact chat detected: $blockedContact — navigating back")
                     lastBackActionTime = now
                     performGlobalAction(GLOBAL_ACTION_BACK)
                 }
@@ -71,11 +72,10 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     /**
-     * Checks if we are currently inside a chat with a blocked contact by looking
-     * specifically at the conversation title bar (the contact name at the top of the chat).
-     * This avoids false positives from the main chat list or message bubbles.
+     * Finds a blocked contact name in the current chat screen.
+     * Returns the matched contact name or null if not in a blocked chat.
      */
-    private fun isInsideBlockedChat(root: AccessibilityNodeInfo): Boolean {
+    private fun findBlockedContactInChat(root: AccessibilityNodeInfo): String? {
         // Strategy 1: Look for the known conversation_contact_name view ID
         for (viewId in CONVERSATION_TITLE_VIEW_IDS) {
             val nodes = root.findAccessibilityNodeInfosByViewId(viewId)
@@ -83,8 +83,9 @@ class BlockerAccessibilityService : AccessibilityService() {
                 for (node in nodes) {
                     try {
                         val text = node.text?.toString()
-                        if (!text.isNullOrBlank() && matchesBlocked(text)) {
-                            return true
+                        if (!text.isNullOrBlank()) {
+                            val matched = findMatchingBlockedContact(text)
+                            if (matched != null) return matched
                         }
                     } finally {
                         node.recycle()
@@ -93,20 +94,15 @@ class BlockerAccessibilityService : AccessibilityService() {
             }
         }
 
-        // Strategy 2: Fallback — look for a toolbar-like container that has the contact name.
-        // WhatsApp's conversation screen has an action bar with the contact name.
-        // We look for nodes with specific characteristics of the conversation header.
-        return checkConversationHeader(root)
+        // Strategy 2: Fallback — look for a toolbar-like container
+        return findBlockedContactInHeader(root)
     }
 
     /**
      * Fallback detection: looks for the contact name in what appears to be
-     * a conversation header/toolbar area. The conversation header in WhatsApp
-     * typically contains a back arrow, profile image, and the contact name.
-     * We identify it by looking for an actionBar or toolbar-like parent.
+     * a conversation header/toolbar area.
      */
-    private fun checkConversationHeader(root: AccessibilityNodeInfo): Boolean {
-        // Look for the action_bar or toolbar containers
+    private fun findBlockedContactInHeader(root: AccessibilityNodeInfo): String? {
         val actionBarIds = listOf(
             "com.whatsapp:id/action_bar",
             "com.whatsapp.w4b:id/action_bar",
@@ -119,43 +115,49 @@ class BlockerAccessibilityService : AccessibilityService() {
             if (bars != null) {
                 for (bar in bars) {
                     try {
-                        if (toolbarContainsBlockedName(bar)) {
-                            return true
-                        }
+                        val matched = findBlockedNameInToolbar(bar)
+                        if (matched != null) return matched
                     } finally {
                         bar.recycle()
                     }
                 }
             }
         }
-        return false
+        return null
     }
 
     /**
      * Searches only within a toolbar/action bar node for a blocked contact name.
      */
-    private fun toolbarContainsBlockedName(node: AccessibilityNodeInfo?): Boolean {
-        node ?: return false
+    private fun findBlockedNameInToolbar(node: AccessibilityNodeInfo?): String? {
+        node ?: return null
 
         val text = node.text?.toString()
-        if (!text.isNullOrBlank() && matchesBlocked(text)) return true
+        if (!text.isNullOrBlank()) {
+            val matched = findMatchingBlockedContact(text)
+            if (matched != null) return matched
+        }
 
         val desc = node.contentDescription?.toString()
-        if (!desc.isNullOrBlank() && matchesBlocked(desc)) return true
+        if (!desc.isNullOrBlank()) {
+            val matched = findMatchingBlockedContact(desc)
+            if (matched != null) return matched
+        }
 
         for (i in 0 until node.childCount) {
             val child = node.getChild(i) ?: continue
             try {
-                if (toolbarContainsBlockedName(child)) return true
+                val matched = findBlockedNameInToolbar(child)
+                if (matched != null) return matched
             } finally {
                 child.recycle()
             }
         }
-        return false
+        return null
     }
 
-    private fun matchesBlocked(text: String): Boolean {
-        return cachedBlockedContacts.any { text.equals(it, ignoreCase = true) }
+    private fun findMatchingBlockedContact(text: String): String? {
+        return cachedBlockedContacts.firstOrNull { text.equals(it, ignoreCase = true) }
     }
 
     override fun onInterrupt() {
