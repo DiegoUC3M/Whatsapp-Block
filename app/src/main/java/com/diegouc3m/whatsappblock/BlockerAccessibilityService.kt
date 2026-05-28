@@ -49,8 +49,10 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (pkg !in WHATSAPP_PACKAGES) return
         if (cachedBlockedContacts.isEmpty()) return
 
-        // Only react to window state changes (opening a chat) to reduce noise
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        // React to window state changes (new activity/dialog) and content changes
+        // (navigating within WhatsApp, e.g. opening a chat from the chat list)
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
 
         // Check if we are within the active schedule
         if (!BlockedContactsRepository.isWithinSchedule(applicationContext)) return
