@@ -11,7 +11,7 @@ import com.diegouc3m.whatsappblock.databinding.ItemScheduleSlotBinding
 class ScheduleSlotAdapter(
     private val onEditStart: (Int, TimeSlot) -> Unit,
     private val onEditEnd: (Int, TimeSlot) -> Unit,
-    private val onDelete: (TimeSlot) -> Unit
+    private val onDelete: (Int, TimeSlot) -> Unit
 ) : ListAdapter<TimeSlot, ScheduleSlotAdapter.ViewHolder>(SlotDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -44,7 +44,7 @@ class ScheduleSlotAdapter(
             binding.btnDeleteSlot.setOnClickListener {
                 val pos = bindingAdapterPosition
                 if (pos != RecyclerView.NO_POSITION) {
-                    onDelete(getItem(pos))
+                    onDelete(pos, getItem(pos))
                 }
             }
         }

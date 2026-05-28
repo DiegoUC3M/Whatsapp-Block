@@ -36,7 +36,7 @@ class ContactListAdapter(
     inner class ViewHolder(private val binding: ItemContactBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        private var slotAdapter: ScheduleSlotAdapter? = null
+        private var groupAdapter: ScheduleGroupAdapter? = null
 
         fun bind(name: String) {
             val context = binding.root.context
@@ -72,50 +72,62 @@ class ContactListAdapter(
                 binding.layoutContactSlots.visibility = if (isChecked) View.VISIBLE else View.GONE
             }
 
-            // Time slots RecyclerView - only set up adapter if not already configured
-            if (binding.rvContactSlots.adapter == null) {
-                binding.rvContactSlots.layoutManager = LinearLayoutManager(context)
+            // Schedule groups RecyclerView
+            if (binding.rvContactGroups.layoutManager == null) {
+                binding.rvContactGroups.layoutManager = LinearLayoutManager(context)
             }
-            val adapter = ScheduleSlotAdapter(
-                onEditStart = { slotPosition, slot ->
+            val adapter = ScheduleGroupAdapter(
+                onToggleDay = { groupIndex, day, enabled ->
+                    BlockedContactsRepository.setContactScheduleGroupDay(context, name, groupIndex, day, enabled)
+                    refreshGroups(name)
+                },
+                onAddSlot = { groupIndex ->
+                    BlockedContactsRepository.addContactScheduleGroupSlot(
+                        context, name, groupIndex, TimeSlot(0, 0, 23, 59)
+                    )
+                    refreshGroups(name)
+                },
+                onEditSlotStart = { groupIndex, slotIndex, slot ->
                     TimePickerDialog(context, { _, hour, minute ->
-                        val slots = BlockedContactsRepository.getContactScheduleSlots(context, name).toMutableList()
-                        if (slotPosition in slots.indices) {
-                            slots[slotPosition] = slot.copy(startHour = hour, startMinute = minute)
-                            BlockedContactsRepository.setContactScheduleSlots(context, name, slots)
-                            refreshSlots(name)
-                        }
+                        BlockedContactsRepository.updateContactScheduleGroupSlot(
+                            context, name, groupIndex, slotIndex,
+                            slot.copy(startHour = hour, startMinute = minute)
+                        )
+                        refreshGroups(name)
                     }, slot.startHour, slot.startMinute, true).show()
                 },
-                onEditEnd = { slotPosition, slot ->
+                onEditSlotEnd = { groupIndex, slotIndex, slot ->
                     TimePickerDialog(context, { _, hour, minute ->
-                        val slots = BlockedContactsRepository.getContactScheduleSlots(context, name).toMutableList()
-                        if (slotPosition in slots.indices) {
-                            slots[slotPosition] = slot.copy(endHour = hour, endMinute = minute)
-                            BlockedContactsRepository.setContactScheduleSlots(context, name, slots)
-                            refreshSlots(name)
-                        }
+                        BlockedContactsRepository.updateContactScheduleGroupSlot(
+                            context, name, groupIndex, slotIndex,
+                            slot.copy(endHour = hour, endMinute = minute)
+                        )
+                        refreshGroups(name)
                     }, slot.endHour, slot.endMinute, true).show()
                 },
-                onDelete = { slot ->
-                    BlockedContactsRepository.removeContactScheduleSlot(context, name, slot)
-                    refreshSlots(name)
+                onDeleteSlot = { groupIndex, slotIndex ->
+                    BlockedContactsRepository.removeContactScheduleGroupSlot(context, name, groupIndex, slotIndex)
+                    refreshGroups(name)
+                },
+                onDeleteGroup = { groupIndex ->
+                    BlockedContactsRepository.removeContactScheduleGroup(context, name, groupIndex)
+                    refreshGroups(name)
                 }
             )
-            slotAdapter = adapter
-            binding.rvContactSlots.adapter = adapter
-            refreshSlots(name)
+            groupAdapter = adapter
+            binding.rvContactGroups.adapter = adapter
+            refreshGroups(name)
 
-            binding.btnAddContactSlot.setOnClickListener {
-                BlockedContactsRepository.addContactScheduleSlot(context, name, TimeSlot(0, 0, 23, 59))
-                refreshSlots(name)
+            binding.btnAddContactGroup.setOnClickListener {
+                BlockedContactsRepository.addContactScheduleGroup(context, name)
+                refreshGroups(name)
             }
         }
 
-        private fun refreshSlots(contact: String) {
+        private fun refreshGroups(contact: String) {
             val context = binding.root.context
-            val slots = BlockedContactsRepository.getContactScheduleSlots(context, contact)
-            slotAdapter?.submitList(slots.toList())
+            val groups = BlockedContactsRepository.getContactScheduleGroups(context, contact)
+            groupAdapter?.submit(groups)
         }
     }
 

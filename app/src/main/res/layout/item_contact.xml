@@ -73,16 +73,16 @@
             android:visibility="gone">
 
             <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/rvContactSlots"
+                android:id="@+id/rvContactGroups"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content" />
 
             <Button
-                android:id="@+id/btnAddContactSlot"
+                android:id="@+id/btnAddContactGroup"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="@string/btn_add_slot"
+                android:text="@string/btn_add_group"
                 android:textSize="12sp"
                 style="?attr/materialButtonOutlinedStyle" />
         </LinearLayout>
