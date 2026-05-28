@@ -22,7 +22,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         )
 
         /** Cooldown to prevent rapid repeated back actions causing a loop. */
-        private const val BACK_ACTION_COOLDOWN_MS = 2000L
+        private const val BACK_ACTION_COOLDOWN_MS = 800L
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
@@ -49,8 +49,9 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (pkg !in WHATSAPP_PACKAGES) return
         if (cachedBlockedContacts.isEmpty()) return
 
-        // Only react to window state changes (opening a chat) to reduce noise
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        // React to window state changes (opening a chat) and content changes (re-entering a chat)
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
 
         val root = rootInActiveWindow ?: return
         try {
