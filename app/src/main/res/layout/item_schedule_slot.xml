@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="4dp"
+    android:paddingBottom="4dp">
+
+    <Button
+        android:id="@+id/btnSlotStart"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="00:00"
+        android:textSize="13sp"
+        style="?attr/materialButtonOutlinedStyle" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text=" — "
+        android:layout_marginStart="4dp"
+        android:layout_marginEnd="4dp" />
+
+    <Button
+        android:id="@+id/btnSlotEnd"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:text="23:59"
+        android:textSize="13sp"
+        style="?attr/materialButtonOutlinedStyle" />
+
+    <ImageButton
+        android:id="@+id/btnDeleteSlot"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:layout_marginStart="4dp"
+        android:src="@android:drawable/ic_menu_delete"
+        android:contentDescription="@string/delete_slot"
+        android:background="?attr/selectableItemBackgroundBorderless" />
+
+</LinearLayout>

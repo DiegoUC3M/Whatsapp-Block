@@ -108,32 +108,21 @@
             android:id="@+id/layoutScheduleTimes"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
+            android:orientation="vertical"
             android:layout_marginTop="8dp"
-            android:gravity="center_vertical"
             android:visibility="gone">
 
-            <Button
-                android:id="@+id/btnStartTime"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/schedule_start"
-                style="?attr/materialButtonOutlinedStyle" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text=" — "
-                android:layout_marginStart="4dp"
-                android:layout_marginEnd="4dp" />
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvScheduleSlots"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
 
             <Button
-                android:id="@+id/btnEndTime"
-                android:layout_width="0dp"
+                android:id="@+id/btnAddSlot"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:text="@string/schedule_end"
+                android:layout_marginTop="4dp"
+                android:text="@string/btn_add_slot"
                 style="?attr/materialButtonOutlinedStyle" />
         </LinearLayout>
     </LinearLayout>

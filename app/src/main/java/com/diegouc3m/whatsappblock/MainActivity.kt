@@ -11,12 +11,14 @@ import androidx.recyclerview.widget.DividerItemDecoration
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.diegouc3m.whatsappblock.databinding.ActivityMainBinding
 import com.diegouc3m.whatsappblock.ui.ContactListAdapter
+import com.diegouc3m.whatsappblock.ui.ScheduleSlotAdapter
 import com.google.android.material.snackbar.Snackbar
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityMainBinding
     private lateinit var adapter: ContactListAdapter
+    private lateinit var scheduleAdapter: ScheduleSlotAdapter
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,39 +64,55 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupScheduleUI() {
+        scheduleAdapter = ScheduleSlotAdapter(
+            onEditStart = { position, slot ->
+                TimePickerDialog(this, { _, hour, minute ->
+                    updateSlot(position, slot.copy(startHour = hour, startMinute = minute))
+                }, slot.startHour, slot.startMinute, true).show()
+            },
+            onEditEnd = { position, slot ->
+                TimePickerDialog(this, { _, hour, minute ->
+                    updateSlot(position, slot.copy(endHour = hour, endMinute = minute))
+                }, slot.endHour, slot.endMinute, true).show()
+            },
+            onDelete = { slot ->
+                BlockedContactsRepository.removeScheduleSlot(this, slot)
+                refreshScheduleSlots()
+            }
+        )
+        binding.rvScheduleSlots.layoutManager = LinearLayoutManager(this)
+        binding.rvScheduleSlots.adapter = scheduleAdapter
+
         val scheduleEnabled = BlockedContactsRepository.isScheduleEnabled(this)
         binding.switchSchedule.isChecked = scheduleEnabled
         binding.layoutScheduleTimes.visibility = if (scheduleEnabled) View.VISIBLE else View.GONE
 
-        refreshScheduleButtons()
+        refreshScheduleSlots()
 
         binding.switchSchedule.setOnCheckedChangeListener { _, isChecked ->
             BlockedContactsRepository.setScheduleEnabled(this, isChecked)
             binding.layoutScheduleTimes.visibility = if (isChecked) View.VISIBLE else View.GONE
         }
 
-        binding.btnStartTime.setOnClickListener {
-            val (h, m) = BlockedContactsRepository.getScheduleStart(this)
-            TimePickerDialog(this, { _, hour, minute ->
-                BlockedContactsRepository.setScheduleStart(this, hour, minute)
-                refreshScheduleButtons()
-            }, h, m, true).show()
-        }
-
-        binding.btnEndTime.setOnClickListener {
-            val (h, m) = BlockedContactsRepository.getScheduleEnd(this)
-            TimePickerDialog(this, { _, hour, minute ->
-                BlockedContactsRepository.setScheduleEnd(this, hour, minute)
-                refreshScheduleButtons()
-            }, h, m, true).show()
+        binding.btnAddSlot.setOnClickListener {
+            // Add a default slot 00:00 - 23:59
+            BlockedContactsRepository.addScheduleSlot(this, TimeSlot(0, 0, 23, 59))
+            refreshScheduleSlots()
         }
     }
 
-    private fun refreshScheduleButtons() {
-        val (startH, startM) = BlockedContactsRepository.getScheduleStart(this)
-        val (endH, endM) = BlockedContactsRepository.getScheduleEnd(this)
-        binding.btnStartTime.text = String.format("From: %02d:%02d", startH, startM)
-        binding.btnEndTime.text = String.format("To: %02d:%02d", endH, endM)
+    private fun updateSlot(position: Int, newSlot: TimeSlot) {
+        val slots = BlockedContactsRepository.getScheduleSlots(this).toMutableList()
+        if (position in slots.indices) {
+            slots[position] = newSlot
+            BlockedContactsRepository.setScheduleSlots(this, slots)
+            refreshScheduleSlots()
+        }
+    }
+
+    private fun refreshScheduleSlots() {
+        val slots = BlockedContactsRepository.getScheduleSlots(this)
+        scheduleAdapter.submitList(slots)
     }
 
     private fun addContact() {
