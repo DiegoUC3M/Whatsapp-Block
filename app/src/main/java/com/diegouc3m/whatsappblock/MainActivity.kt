@@ -112,6 +112,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshScheduleSlots() {
         val slots = BlockedContactsRepository.getScheduleSlots(this)
+        scheduleAdapter.submitList(null)
         scheduleAdapter.submitList(slots)
     }
 

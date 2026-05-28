@@ -51,6 +51,8 @@ object BlockedContactsRepository {
     private const val KEY_CONTACTS = "blocked_contacts"
     private const val KEY_SCHEDULE_ENABLED = "schedule_enabled"
     private const val KEY_SCHEDULE_SLOTS = "schedule_slots"
+    private const val KEY_SCHEDULE_SLOTS_ORDERED = "schedule_slots_ordered"
+    private const val SLOT_SEPARATOR = "|"
     private const val MAX_CONTACT_NAME_LENGTH = 100
 
     private fun prefs(context: Context): SharedPreferences =
@@ -86,14 +88,28 @@ object BlockedContactsRepository {
     }
 
     fun getScheduleSlots(context: Context): List<TimeSlot> {
+        // Try ordered storage first, fall back to legacy StringSet for migration
+        val ordered = prefs(context).getString(KEY_SCHEDULE_SLOTS_ORDERED, null)
+        if (ordered != null) {
+            if (ordered.isEmpty()) return emptyList()
+            return ordered.split(SLOT_SEPARATOR).mapNotNull { TimeSlot.deserialize(it) }
+        }
+        // Migrate from legacy StringSet storage
         val raw = prefs(context).getStringSet(KEY_SCHEDULE_SLOTS, emptySet()) ?: emptySet()
-        return raw.mapNotNull { TimeSlot.deserialize(it) }
+        val slots = raw.mapNotNull { TimeSlot.deserialize(it) }
             .sortedBy { it.startHour * 60 + it.startMinute }
+        if (slots.isNotEmpty()) {
+            setScheduleSlots(context, slots)
+        }
+        return slots
     }
 
     fun setScheduleSlots(context: Context, slots: List<TimeSlot>) {
-        val serialized = slots.map { it.serialize() }.toSet()
-        prefs(context).edit().putStringSet(KEY_SCHEDULE_SLOTS, serialized).apply()
+        val serialized = slots.joinToString(SLOT_SEPARATOR) { it.serialize() }
+        prefs(context).edit()
+            .putString(KEY_SCHEDULE_SLOTS_ORDERED, serialized)
+            .remove(KEY_SCHEDULE_SLOTS) // Remove legacy key
+            .apply()
     }
 
     fun addScheduleSlot(context: Context, slot: TimeSlot) {

@@ -22,18 +22,36 @@ class ScheduleSlotAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(getItem(position), position)
+        holder.bind(getItem(position))
     }
 
     inner class ViewHolder(private val binding: ItemScheduleSlotBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
-        fun bind(slot: TimeSlot, position: Int) {
+        init {
+            binding.btnSlotStart.setOnClickListener {
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) {
+                    onEditStart(pos, getItem(pos))
+                }
+            }
+            binding.btnSlotEnd.setOnClickListener {
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) {
+                    onEditEnd(pos, getItem(pos))
+                }
+            }
+            binding.btnDeleteSlot.setOnClickListener {
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) {
+                    onDelete(getItem(pos))
+                }
+            }
+        }
+
+        fun bind(slot: TimeSlot) {
             binding.btnSlotStart.text = String.format("%02d:%02d", slot.startHour, slot.startMinute)
             binding.btnSlotEnd.text = String.format("%02d:%02d", slot.endHour, slot.endMinute)
-            binding.btnSlotStart.setOnClickListener { onEditStart(position, slot) }
-            binding.btnSlotEnd.setOnClickListener { onEditEnd(position, slot) }
-            binding.btnDeleteSlot.setOnClickListener { onDelete(slot) }
         }
     }
 
