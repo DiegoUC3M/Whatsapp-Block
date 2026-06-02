@@ -30,6 +30,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     private var cachedBlockedContacts: Set<String> = emptySet()
     private var cachedAvatarHashesByContact: Map<String, Set<String>> = emptyMap()
+    private var cachedHasAnyAvatarHashes: Boolean = false
     private var lastBackActionTime: Long = 0L
     private val avatarMatcher = AvatarMatcher()
 
@@ -37,12 +38,14 @@ class BlockerAccessibilityService : AccessibilityService() {
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             cachedBlockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
             cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
+            cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
         }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         cachedBlockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
         cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
+        cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
         BlockedContactsRepository.registerListener(applicationContext, prefsListener)
     }
 
@@ -65,7 +68,7 @@ class BlockerAccessibilityService : AccessibilityService() {
             val fallbackByName = findBlockedContactInChat(root)
             val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
             val shouldAttemptAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                (pendingEnrollment != null || cachedAvatarHashesByContact.values.any { it.isNotEmpty() })
+                (pendingEnrollment != null || cachedHasAnyAvatarHashes)
 
             if (!shouldAttemptAvatar) {
                 maybeBlockContact(fallbackByName, "name")
@@ -112,6 +115,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (added) {
             Log.d(TAG, "Enrolled avatar hash for $contact: $hash")
             cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
+            cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
         }
         BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
     }

@@ -27,6 +27,7 @@ class AvatarMatcher {
         // dHash compares horizontally adjacent pixels, so width is one pixel larger than height.
         private const val HASH_WIDTH = HASH_SIZE + 1
         private const val HASH_HEIGHT = HASH_SIZE
+        private const val HASH_HEX_LENGTH = 16
         private const val SCREENSHOT_COOLDOWN_MS = 350L
         private const val HAMMING_THRESHOLD = 10
 
@@ -111,7 +112,7 @@ class AvatarMatcher {
         for ((contact, hashes) in hashesByContact) {
             for (storedHash in hashes) {
                 val stored = parseHash(storedHash) ?: continue
-                val distance = java.lang.Long.bitCount((observed xor stored).toLong())
+                val distance = java.lang.Long.bitCount(observed.toLong() xor stored.toLong())
                 if (distance > maxDistance) continue
 
                 val current = best
@@ -212,7 +213,7 @@ class AvatarMatcher {
             }
         }
         resized.recycle()
-        return java.lang.Long.toUnsignedString(hash, 16).padStart(16, '0').lowercase()
+        return hash.toULong().toString(16).padStart(HASH_HEX_LENGTH, '0').lowercase()
     }
 
     private fun luma(color: Int): Int {
@@ -224,7 +225,7 @@ class AvatarMatcher {
 
     private fun parseHash(hashHex: String): ULong? {
         val normalized = hashHex.trim().lowercase()
-        return if (normalized.length == 16) {
+        return if (normalized.length == HASH_HEX_LENGTH) {
             normalized.toULongOrNull(16)
         } else {
             null
