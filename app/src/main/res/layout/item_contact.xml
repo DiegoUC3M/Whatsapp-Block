@@ -14,11 +14,19 @@
         android:textSize="15sp" />
 
     <ImageButton
+        android:id="@+id/btnEnrollAvatar"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/btn_enroll_avatar"
+        android:src="@android:drawable/ic_menu_camera" />
+
+    <ImageButton
         android:id="@+id/btnDelete"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:src="@android:drawable/ic_menu_delete"
         android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Delete contact" />
+        android:contentDescription="@string/btn_delete_contact" />
 
 </LinearLayout>

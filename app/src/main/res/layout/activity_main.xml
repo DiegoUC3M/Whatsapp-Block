@@ -24,6 +24,14 @@
         android:layout_marginTop="12dp"
         android:text="@string/btn_open_settings" />
 
+    <TextView
+        android:id="@+id/tvAvatarEnrollmentHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:text="@string/avatar_enrollment_hint"
+        android:textSize="14sp" />
+
     <!-- Add contact -->
     <LinearLayout
         android:layout_width="match_parent"

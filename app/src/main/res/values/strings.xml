@@ -1,13 +1,21 @@
 <resources>
     <string name="app_name">WhatsApp Block</string>
     <string name="accessibility_service_label">WhatsApp Contact Blocker</string>
-    <string name="accessibility_service_description">Blocks WhatsApp chats from specific contacts by detecting their name on screen and navigating back automatically.</string>
+    <string name="accessibility_service_description">Blocks WhatsApp chats from specific contacts by matching their WhatsApp avatar hash when available and falling back to on-screen name detection.</string>
     <string name="service_status_active">✅ Service Active</string>
     <string name="service_status_inactive">❌ Service Inactive</string>
     <string name="btn_open_settings">Open Accessibility Settings</string>
     <string name="btn_add">Add</string>
+    <string name="btn_enroll_avatar">Enroll avatar</string>
+    <string name="btn_delete_contact">Delete contact</string>
     <string name="hint_contact_name">Contact name to block…</string>
     <string name="blocked_contacts_title">Blocked Contacts</string>
     <string name="no_contacts">No blocked contacts yet</string>
     <string name="error_empty_name">Please enter a contact name</string>
+    <string name="avatar_enrollment_hint">Android 11+: tap the camera icon next to a blocked contact, then open that chat in WhatsApp so the service can enroll its profile picture hash.</string>
+    <string name="avatar_enrollment_started">Now open %1$s&apos;s chat in WhatsApp to enroll the avatar hash.</string>
+    <string name="avatar_enrollment_success">Avatar enrolled for %1$s.</string>
+    <string name="avatar_enrollment_failed">Couldn&apos;t enroll %1$s&apos;s avatar. Try again with the chat header fully visible.</string>
+    <string name="avatar_enrollment_requires_api_30">Avatar enrollment needs Android 11 (API 30) or newer.</string>
+    <string name="avatar_enrollment_requires_service">Enable the accessibility service before enrolling an avatar.</string>
 </resources>

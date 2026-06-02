@@ -6,7 +6,8 @@ import androidx.recyclerview.widget.RecyclerView
 import com.diegouc3m.whatsappblock.databinding.ItemContactBinding
 
 class ContactListAdapter(
-    private val onDelete: (String) -> Unit
+    private val onDelete: (String) -> Unit,
+    private val onEnrollAvatar: (String) -> Unit
 ) : RecyclerView.Adapter<ContactListAdapter.ViewHolder>() {
 
     private val items = mutableListOf<String>()
@@ -35,6 +36,7 @@ class ContactListAdapter(
 
         fun bind(name: String) {
             binding.tvContactName.text = name
+            binding.btnEnrollAvatar.setOnClickListener { onEnrollAvatar(name) }
             binding.btnDelete.setOnClickListener { onDelete(name) }
         }
     }

@@ -34,24 +34,32 @@ User opens WhatsApp chat
 AccessibilityService fires (typeWindowStateChanged / typeWindowContentChanged)
          │
          ▼
-App traverses the full Accessibility Tree, collecting all visible text nodes
+App traverses the Accessibility Tree and locates the chat-header avatar bounds
          │
          ▼
-Checks if any text matches a name in the blocked list (case-insensitive)
+If Android 11+ and an enrolled avatar hash exists:
+capture screenshot → crop avatar → compute 64-bit dHash → compare by Hamming distance
          │
     ┌────┴────┐
-   YES        NO
+   MATCH      NO MATCH
     │          │
     ▼          ▼
-performGlobalAction  Do nothing
+performGlobalAction  Fall back to name matching over visible text
 (GLOBAL_ACTION_BACK)
 ```
 
 1. You add contact names to a blocked list inside the app.
-2. The `AccessibilityService` runs silently in the background.
-3. Every time a window changes inside WhatsApp (you open a chat, switch conversations, etc.), the service wakes up.
-4. It reads **all text visible on screen** — no hardcoded IDs, no fragile selectors.
-5. If any blocked name is found anywhere on screen, it fires `GLOBAL_ACTION_BACK` — same as pressing the hardware back button.
+2. Optionally, on Android 11+ you enroll that contact's WhatsApp profile photo by opening the chat once and letting the accessibility service capture only the avatar crop.
+3. The service stores only a compact **64-bit dHash** (difference hash), not the raw image.
+4. Every time a WhatsApp window changes, the service first tries the avatar match:
+   - find the avatar bounds heuristically by position/size in the header
+   - take a screenshot
+   - downscale the crop to **9x8 grayscale**
+   - compare neighboring pixels to produce a **64-bit dHash**
+   - compare against enrolled hashes using **Hamming distance** with a default threshold of **10**
+5. If no avatar hash is enrolled, the device is below API 30, or the avatar check does not match, the app falls back to the existing name-based detection.
+
+This defeats the easy “rename the contact in the phone Contacts app” bypass: your phonebook name can change, but the WhatsApp profile picture shown in the chat header comes from WhatsApp and is not editable from the Contacts app.
 
 ---
 
@@ -72,9 +80,12 @@ The core of the app. Extends `AccessibilityService` and listens for:
 - `TYPE_WINDOW_STATE_CHANGED` — fires when you navigate to a new screen
 - `TYPE_WINDOW_CONTENT_CHANGED` — fires when content updates within a screen
 
-Only activates when the foreground app is `com.whatsapp` or `com.whatsapp.w4b` (WhatsApp Business).
+Only activates when the foreground app is `com.whatsapp` or `com.whatsapp.w4b` (WhatsApp Business). Its detection order is:
 
-**Tree traversal algorithm:**
+1. **Avatar-first (API 30+)** — if any avatar hashes are enrolled, the service calls `takeScreenshot()`, crops the header avatar, computes a dHash, and looks for a stored hash within Hamming distance `<= 10`.
+2. **Name fallback** — if the avatar path is unavailable or does not match, it falls back to the existing text-tree traversal.
+
+**Fallback tree traversal algorithm:**
 
 ```kotlin
 private fun traverseTree(node: AccessibilityNodeInfo?, output: MutableList<String>) {
@@ -89,7 +100,7 @@ private fun traverseTree(node: AccessibilityNodeInfo?, output: MutableList<Strin
 }
 ```
 
-Collects both `text` and `contentDescription` from every node. Then checks:
+The avatar matcher never relies on WhatsApp view IDs; it uses only accessibility-exposed bounds plus a screenshot. The fallback name matcher still collects both `text` and `contentDescription` from every node and then checks:
 
 ```kotlin
 val matched = blocked.firstOrNull { name ->
@@ -100,13 +111,17 @@ if (matched != null) performGlobalAction(GLOBAL_ACTION_BACK)
 
 ### `BlockedContactsRepository`
 
-Simple persistence layer using `SharedPreferences` with a `Set<String>`. Three methods:
+Persistence layer using `SharedPreferences`. It keeps the original blocked-name `Set<String>` for backward compatibility and adds per-contact avatar hashes plus a small enrollment state.
 
 | Method | Description |
 |---|---|
 | `getBlockedContacts(context)` | Returns the full set of blocked names |
 | `addContact(context, name)` | Adds a name (trimmed) to the set |
-| `removeContact(context, name)` | Removes a name from the set |
+| `removeContact(context, name)` | Removes a name and clears any stored avatar hashes for it |
+| `addAvatarHash(context, name, hash)` | Stores a 64-bit avatar hash for a blocked contact |
+| `getAvatarHashes(context)` | Returns all stored avatar hashes grouped by contact |
+| `getAllAvatarHashes(context)` | Returns the flattened set of stored avatar hashes |
+| `requestAvatarEnrollment(context, name)` | Marks a blocked contact as the next avatar to enroll |
 
 ### `MainActivity`
 
@@ -115,8 +130,18 @@ The user-facing UI. Built with ViewBinding and Material Components. Responsibili
 - Shows whether the `AccessibilityService` is currently **active** (green) or **inactive** (red)
 - Deep-links to system Accessibility Settings
 - Lets the user add contact names via an `EditText`
-- Shows the full blocked list in a `RecyclerView` with per-item delete buttons
+- Shows the full blocked list in a `RecyclerView` with per-item delete and **avatar enrollment** actions
 - Refreshes state on every `onResume`
+
+### `AvatarMatcher`
+
+Encapsulates the screenshot-based signal:
+
+- Finds the chat-header avatar bounds heuristically by **position, size, and image-like class names**
+- Throttles `takeScreenshot()` calls to respect the platform rate limit (~333 ms)
+- Crops the avatar rectangle, downsamples to **9x8**, computes a **64-bit dHash**
+- Compares hashes using Hamming distance with a tunable default threshold of **10**
+- Cleanly disables itself below API 30
 
 ### `ContactListAdapter`
 
@@ -134,6 +159,7 @@ WhatsApp-Block/
 │       ├── AndroidManifest.xml
 │       ├── java/com/diegouc3m/whatsappblock/
 │       │   ├── MainActivity.kt                   # UI entry point
+│       │   ├── AvatarMatcher.kt                  # Screenshot + dHash avatar matching
 │       │   ├── BlockerAccessibilityService.kt    # Core blocking logic
 │       │   ├── BlockedContactsRepository.kt      # SharedPreferences storage
 │       │   └── ui/
@@ -231,16 +257,22 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 ### Adding a contact to the block list
 
 1. Open the app.
-2. Type the contact's **exact display name** as it appears in WhatsApp (case-insensitive).
-   - Example: if the chat header shows `"María García"`, type `María García`
+2. Type the contact's display name as it currently appears in WhatsApp.
 3. Tap **Add** (or press Done on the keyboard).
 4. The name appears in the list immediately.
+
+### Enrolling a contact avatar (Android 11+)
+
+1. In the blocked list, tap the **camera icon** next to the contact.
+2. Open that direct chat in WhatsApp with the header avatar visible.
+3. The accessibility service captures the screen, crops only the avatar area, computes a dHash, stores the hash locally, and exits the chat again.
+4. The next time you open that chat, the service can identify it even if you renamed the contact in the phone Contacts app.
 
 ### Removing a contact from the block list
 
 1. Find the contact in the list.
 2. Tap the **🗑 delete icon** on the right.
-3. The block is removed instantly — no confirmation needed.
+3. The block and any enrolled avatar hashes are removed instantly — no confirmation needed.
 
 ### Temporarily disabling blocking
 
@@ -264,9 +296,9 @@ WhatsApp uses code obfuscation (ProGuard/R8) and ships updates frequently. After
 1. Gets the root of the accessibility window.
 2. Walks **every single node** in the tree recursively.
 3. Collects every `text` and `contentDescription` string it finds.
-4. Checks if any of them contains a blocked name.
+4. Uses that text traversal only as the fallback signal after the avatar hash check.
 
-As long as WhatsApp renders the contact's name somewhere on screen (which it always does in the chat header), this approach works — regardless of how WhatsApp reorganizes its internals.
+As long as WhatsApp keeps exposing normal accessibility bounds and text, this approach avoids fragile view IDs and survives UI churn better than selector-based implementations.
 
 **The only scenario where this could break** is if WhatsApp completely stops exposing text content to the Accessibility API — which would also break TalkBack and other screen readers, making it a serious accessibility regression that WhatsApp would be unlikely to ship.
 
@@ -276,9 +308,13 @@ As long as WhatsApp renders the contact's name somewhere on screen (which it alw
 
 | Limitation | Details |
 |---|---|
-| **False positives** | If a blocked name appears in a group name, in a quoted message, or anywhere else in the WhatsApp UI, the block will trigger even if you didn't open their direct chat |
+| **Avatar drift** | If the blocked person changes their WhatsApp profile photo, the stored hash may stop matching. Re-enroll the avatar; you can also store multiple hashes over time |
+| **Hidden / generic avatars** | If the contact hides their profile photo or WhatsApp shows a generic avatar, that image is not a reliable identifier and can collide with other chats. The app still keeps the name fallback for this reason |
+| **Screenshot API requirement** | Avatar matching needs Android 11 / API 30 or newer. Devices on API 26-29 use only the fallback name-based detection |
+| **Screenshot throttling** | `takeScreenshot()` is rate-limited by Android, so avatar capture is throttled to roughly one request every 333 ms |
+| **False positives from fallback text** | If a blocked name appears in a group name, in a quoted message, or anywhere else in the WhatsApp UI, the fallback name matcher can still trigger even if you didn't open their direct chat |
 | **Brief flash** | The chat screen renders for a fraction of a second before the service fires back. You may see a flash of the conversation |
-| **Exact name matching** | The contact name must match what WhatsApp displays in the chat header. Nicknames set inside WhatsApp's contact settings are what matter, not your phone's contact book name |
+| **Heuristic avatar bounds** | The app does not use WhatsApp view IDs, so avatar cropping depends on header position/size heuristics. If WhatsApp radically redesigns the header, the avatar signal may need tuning |
 | **Non-latin characters** | Names with accents or special characters work fine (comparison is unicode-aware), but emojis in names may cause unexpected behavior |
 | **Battery optimization** | Aggressive battery optimizers on some ROMs (MIUI, OneUI) may kill the service. Mark the app as battery-unrestricted if this happens |
 | **Accessibility tree depth** | On very complex screens, deep traversal has a negligible but non-zero CPU cost. In practice this is imperceptible |
@@ -289,7 +325,7 @@ As long as WhatsApp renders the contact's name somewhere on screen (which it alw
 ## FAQ
 
 **Q: Does this app read my WhatsApp messages?**  
-A: The `AccessibilityService` reads all text nodes visible on screen to find contact names. It does not store, log, transmit, or process message content in any way. Everything stays on-device.
+A: The `AccessibilityService` may read visible text for the fallback matcher, and on Android 11+ it may capture a screenshot briefly to crop the chat-header avatar and compute a compact perceptual hash. It does not store raw screenshots, log message content, or send anything off-device.
 
 **Q: Will this work with WhatsApp Business?**  
 A: Yes. The service monitors both `com.whatsapp` and `com.whatsapp.w4b`.
@@ -317,6 +353,7 @@ This app:
 - ✅ Works **entirely offline**
 - ✅ Stores data **only in local SharedPreferences**
 - ✅ Has **no analytics, no tracking, no network requests**
+- ✅ Stores only compact avatar hashes, **not raw profile photos or screenshots**
 - ✅ Does **not log or store** message content
 - ⚠️ Requires the Accessibility permission, which Android flags with a system warning — this is expected and necessary for the app to function
 

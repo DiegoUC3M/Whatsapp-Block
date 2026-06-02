@@ -1,6 +1,7 @@
 package com.diegouc3m.whatsappblock
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -30,13 +31,19 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         refreshServiceStatus()
         refreshContactList()
+        showPendingStatusMessage()
     }
 
     private fun setupRecyclerView() {
-        adapter = ContactListAdapter { name ->
-            BlockedContactsRepository.removeContact(this, name)
-            refreshContactList()
-        }
+        adapter = ContactListAdapter(
+            onDelete = { name ->
+                BlockedContactsRepository.removeContact(this, name)
+                refreshContactList()
+            },
+            onEnrollAvatar = { name ->
+                startAvatarEnrollment(name)
+            }
+        )
         binding.rvContacts.layoutManager = LinearLayoutManager(this)
         binding.rvContacts.addItemDecoration(
             DividerItemDecoration(this, DividerItemDecoration.VERTICAL)
@@ -70,11 +77,43 @@ class MainActivity : AppCompatActivity() {
         refreshContactList()
     }
 
+    private fun startAvatarEnrollment(name: String) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            Snackbar.make(
+                binding.root,
+                getString(R.string.avatar_enrollment_requires_api_30),
+                Snackbar.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        if (!isAccessibilityServiceEnabled()) {
+            Snackbar.make(
+                binding.root,
+                getString(R.string.avatar_enrollment_requires_service),
+                Snackbar.LENGTH_LONG
+            ).show()
+            return
+        }
+
+        BlockedContactsRepository.requestAvatarEnrollment(this, name)
+        Snackbar.make(
+            binding.root,
+            getString(R.string.avatar_enrollment_started, name),
+            Snackbar.LENGTH_LONG
+        ).show()
+    }
+
     private fun refreshContactList() {
         val contacts = BlockedContactsRepository.getBlockedContacts(this).toList()
         adapter.submitList(contacts)
         binding.tvEmpty.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
         binding.rvContacts.visibility = if (contacts.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun showPendingStatusMessage() {
+        val message = BlockedContactsRepository.consumePendingStatusMessage(this) ?: return
+        Snackbar.make(binding.root, message, Snackbar.LENGTH_LONG).show()
     }
 
     private fun refreshServiceStatus() {
