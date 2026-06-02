@@ -11,9 +11,31 @@ object BlockedContactsRepository {
     private const val KEY_PENDING_AVATAR_ENROLLMENT = "pending_avatar_enrollment"
     private const val KEY_PENDING_STATUS_MESSAGE = "pending_status_message"
 
+    data class BlockedContact(val name: String, val avatarHashes: List<String>)
+
     fun getBlockedContacts(context: Context): Set<String> {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         return prefs.getStringSet(KEY_CONTACTS, emptySet())?.toSet() ?: emptySet()
+    }
+
+    fun getBlockedContactsWithHashes(context: Context): List<BlockedContact> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return getBlockedContacts(context).map { name ->
+            val hashes = prefs.getStringSet(avatarHashesKey(name), emptySet())
+                ?.sorted()
+                ?: emptyList()
+            BlockedContact(name, hashes)
+        }
+    }
+
+    fun removeAvatarHashes(context: Context, name: String) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val avatarContacts = getAvatarHashContacts(prefs).toMutableSet()
+        avatarContacts.remove(name)
+        prefs.edit()
+            .remove(avatarHashesKey(name))
+            .putStringSet(KEY_AVATAR_HASH_CONTACTS, avatarContacts)
+            .apply()
     }
 
     fun addContact(context: Context, name: String) {

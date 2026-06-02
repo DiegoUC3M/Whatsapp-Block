@@ -42,6 +42,15 @@ class MainActivity : AppCompatActivity() {
             },
             onEnrollAvatar = { name ->
                 startAvatarEnrollment(name)
+            },
+            onDeleteAvatar = { name ->
+                BlockedContactsRepository.removeAvatarHashes(this, name)
+                refreshContactList()
+                Snackbar.make(
+                    binding.root,
+                    getString(R.string.avatar_hash_removed, name),
+                    Snackbar.LENGTH_SHORT
+                ).show()
             }
         )
         binding.rvContacts.layoutManager = LinearLayoutManager(this)
@@ -105,7 +114,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshContactList() {
-        val contacts = BlockedContactsRepository.getBlockedContacts(this).toList()
+        val contacts = BlockedContactsRepository.getBlockedContactsWithHashes(this)
         adapter.submitList(contacts)
         binding.tvEmpty.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
         binding.rvContacts.visibility = if (contacts.isEmpty()) View.GONE else View.VISIBLE

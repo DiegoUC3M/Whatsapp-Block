@@ -7,7 +7,11 @@
     <string name="btn_open_settings">Open Accessibility Settings</string>
     <string name="btn_add">Add</string>
     <string name="btn_enroll_avatar">Enroll avatar</string>
+    <string name="btn_delete_avatar">Delete avatar hash</string>
     <string name="btn_delete_contact">Delete contact</string>
+    <string name="avatar_hash_label">Avatar hash: %1$s</string>
+    <string name="avatar_hash_none">No avatar hash saved yet</string>
+    <string name="avatar_hash_removed">Avatar hash removed for %1$s.</string>
     <string name="hint_contact_name">Contact name to block…</string>
     <string name="blocked_contacts_title">Blocked Contacts</string>
     <string name="no_contacts">No blocked contacts yet</string>
