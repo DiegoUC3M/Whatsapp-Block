@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.diegouc3m.whatsappblock.R
 import com.diegouc3m.whatsappblock.BlockedContactsRepository
 import com.diegouc3m.whatsappblock.TimeSlot
 import com.diegouc3m.whatsappblock.databinding.ItemContactBinding
@@ -42,6 +43,12 @@ class ContactListAdapter(
             val context = binding.root.context
             binding.tvContactName.text = name
             binding.btnDelete.setOnClickListener { onDelete(name) }
+            val avatarHashes = BlockedContactsRepository.getContactAvatarHashes(context, name).sorted()
+            binding.tvAvatarHashes.text = if (avatarHashes.isEmpty()) {
+                context.getString(R.string.avatar_hashes_none)
+            } else {
+                context.getString(R.string.avatar_hashes_label, avatarHashes.joinToString(", "))
+            }
 
             // Expand/collapse
             val isExpanded = name in expandedContacts

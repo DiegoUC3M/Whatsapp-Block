@@ -1,6 +1,9 @@
 package com.diegouc3m.whatsappblock
 
 import android.accessibilityservice.AccessibilityService
+import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.content.SharedPreferences
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -26,16 +29,20 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
+    private var cachedAvatarHashesByContact: Map<String, Set<String>> = emptyMap()
     private var lastBackActionTime: Long = 0L
+    private val avatarMatcher = AvatarMatcher()
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
             cachedBlockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
+            cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
         }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
         cachedBlockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
+        cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
         BlockedContactsRepository.registerListener(applicationContext, prefsListener)
     }
 
@@ -55,20 +62,77 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return
         try {
-            val blockedContact = findBlockedContactInChat(root)
-            if (blockedContact != null) {
-                // Check per-contact schedule
-                if (!BlockedContactsRepository.isWithinScheduleForContact(applicationContext, blockedContact)) return
+            val fallbackByName = findBlockedContactInChat(root)
+            val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
+            val shouldAttemptAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+                (pendingEnrollment != null || cachedAvatarHashesByContact.values.any { it.isNotEmpty() })
 
-                val now = System.currentTimeMillis()
-                if (now - lastBackActionTime > BACK_ACTION_COOLDOWN_MS) {
-                    Log.d(TAG, "Blocked contact chat detected: $blockedContact — navigating back")
-                    lastBackActionTime = now
-                    performGlobalAction(GLOBAL_ACTION_BACK)
+            if (!shouldAttemptAvatar) {
+                maybeBlockContact(fallbackByName, "name")
+                return
+            }
+
+            val started = avatarMatcher.captureAvatarHash(this, root) { observedHash ->
+                runOnMainThread {
+                    if (!observedHash.isNullOrBlank()) {
+                        enrollPendingContactAvatarHash(pendingEnrollment, observedHash)
+                    }
+
+                    val avatarMatch = observedHash?.let {
+                        avatarMatcher.findBestMatch(it, cachedAvatarHashesByContact)
+                    }
+                    if (avatarMatch != null) {
+                        Log.d(
+                            TAG,
+                            "Avatar match: ${avatarMatch.contact} (distance=${avatarMatch.distance}, hash=${avatarMatch.observedHash})"
+                        )
+                    }
+                    val contactToBlock = avatarMatch?.contact ?: fallbackByName
+                    val reason = if (avatarMatch != null) "avatar" else "name"
+                    maybeBlockContact(contactToBlock, reason)
                 }
+            }
+
+            if (!started) {
+                maybeBlockContact(fallbackByName, "name")
             }
         } finally {
             root.recycle()
+        }
+    }
+
+    private fun enrollPendingContactAvatarHash(pendingContact: String?, hash: String) {
+        val contact = pendingContact ?: return
+        val blockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
+        if (contact !in blockedContacts) {
+            BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
+            return
+        }
+        val added = BlockedContactsRepository.addContactAvatarHash(applicationContext, contact, hash)
+        if (added) {
+            Log.d(TAG, "Enrolled avatar hash for $contact: $hash")
+            cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
+        }
+        BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
+    }
+
+    private fun maybeBlockContact(contact: String?, reason: String) {
+        val blockedContact = contact ?: return
+        if (!BlockedContactsRepository.isWithinScheduleForContact(applicationContext, blockedContact)) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastBackActionTime > BACK_ACTION_COOLDOWN_MS) {
+            Log.d(TAG, "Blocked contact chat detected via $reason: $blockedContact — navigating back")
+            lastBackActionTime = now
+            performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+    }
+
+    private fun runOnMainThread(action: () -> Unit) {
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action()
+        } else {
+            Handler(Looper.getMainLooper()).post(action)
         }
     }
 

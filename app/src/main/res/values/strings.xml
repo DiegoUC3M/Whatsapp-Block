@@ -1,16 +1,20 @@
 <resources>
     <string name="app_name">WhatsApp Block</string>
     <string name="accessibility_service_label">WhatsApp Contact Blocker</string>
-    <string name="accessibility_service_description">Blocks WhatsApp chats from specific contacts by detecting their name on screen and navigating back automatically.</string>
+    <string name="accessibility_service_description">Blocks WhatsApp chats from specific contacts by matching avatar hashes (API 30+) with name fallback and navigating back automatically.</string>
     <string name="service_status_active">✅ Service Active</string>
     <string name="service_status_inactive">❌ Service Inactive</string>
     <string name="btn_open_settings">Open Accessibility Settings</string>
     <string name="btn_add">Add</string>
+    <string name="btn_enroll_avatar">Enroll avatar from current/open chat</string>
     <string name="hint_contact_name">Contact name to block…</string>
     <string name="blocked_contacts_title">Blocked Contacts</string>
     <string name="no_contacts">No blocked contacts yet</string>
     <string name="error_empty_name">Please enter a contact name</string>
     <string name="error_name_too_long">Contact name is too long (max 100 characters)</string>
+    <string name="avatar_enrollment_armed">Avatar enrollment armed for %1$s. Open their chat in WhatsApp now.</string>
+    <string name="avatar_hashes_none">Avatar hash: not enrolled yet</string>
+    <string name="avatar_hashes_label">Avatar hash(es): %1$s</string>
     <string name="delete_contact">Delete contact</string>
     <string name="toggle_schedule">Toggle schedule</string>
     <string name="schedule_title">⏰ Schedule</string>

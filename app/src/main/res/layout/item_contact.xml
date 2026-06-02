@@ -36,6 +36,13 @@
             android:contentDescription="@string/delete_contact" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/tvAvatarHashes"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:textSize="12sp" />
+
     <!-- Per-contact schedule section (expandable) -->
     <LinearLayout
         android:id="@+id/layoutContactSchedule"
