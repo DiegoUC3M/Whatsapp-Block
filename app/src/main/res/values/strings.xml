@@ -13,6 +13,7 @@
     <string name="error_empty_name">Please enter a contact name</string>
     <string name="error_name_too_long">Contact name is too long (max 100 characters)</string>
     <string name="avatar_enrollment_armed">Avatar enrollment armed for %1$s. Open their chat in WhatsApp now.</string>
+    <string name="avatar_enrollment_armed_no_whatsapp">Avatar enrollment armed for %1$s. Open WhatsApp manually and enter their chat.</string>
     <string name="avatar_hashes_none">Avatar hash: not enrolled yet</string>
     <string name="avatar_hashes_label">Avatar hash(es): %1$s</string>
     <string name="delete_contact">Delete contact</string>

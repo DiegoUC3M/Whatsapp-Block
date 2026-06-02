@@ -107,7 +107,7 @@ class BlockerAccessibilityService : AccessibilityService() {
     private fun enrollPendingContactAvatarHash(pendingContact: String?, hash: String) {
         val contact = pendingContact ?: return
         val blockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
-        if (contact !in blockedContacts) {
+        if (blockedContacts.none { it.equals(contact, ignoreCase = true) }) {
             BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
             return
         }

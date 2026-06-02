@@ -98,12 +98,13 @@ class MainActivity : AppCompatActivity() {
         }
 
         val blockedContacts = BlockedContactsRepository.getBlockedContacts(this)
-        if (name !in blockedContacts && !BlockedContactsRepository.addContact(this, name)) {
+        val canonicalName = blockedContacts.firstOrNull { it.equals(name, ignoreCase = true) } ?: name
+        if (canonicalName == name && name !in blockedContacts && !BlockedContactsRepository.addContact(this, name)) {
             Snackbar.make(binding.root, getString(R.string.error_name_too_long), Snackbar.LENGTH_SHORT).show()
             return
         }
 
-        BlockedContactsRepository.setPendingAvatarEnrollmentContact(this, name)
+        BlockedContactsRepository.setPendingAvatarEnrollmentContact(this, canonicalName)
         refreshContactList()
 
         val launchIntent = packageManager.getLaunchIntentForPackage("com.whatsapp")
@@ -111,13 +112,18 @@ class MainActivity : AppCompatActivity() {
 
         if (launchIntent != null) {
             startActivity(launchIntent)
+            Snackbar.make(
+                binding.root,
+                getString(R.string.avatar_enrollment_armed, canonicalName),
+                Snackbar.LENGTH_LONG
+            ).show()
+        } else {
+            Snackbar.make(
+                binding.root,
+                getString(R.string.avatar_enrollment_armed_no_whatsapp, canonicalName),
+                Snackbar.LENGTH_LONG
+            ).show()
         }
-
-        Snackbar.make(
-            binding.root,
-            getString(R.string.avatar_enrollment_armed, name),
-            Snackbar.LENGTH_LONG
-        ).show()
     }
 
     private fun refreshServiceStatus() {

@@ -37,7 +37,7 @@ AccessibilityService fires (typeWindowStateChanged / typeWindowContentChanged)
 API 30+: capture screenshot + crop toolbar avatar + compute dHash64
          │
          ▼
-Compare against stored avatar hashes (Hamming threshold = 10)
+Compare against stored avatar hashes (Hamming threshold = 10, i.e. allows up to 10 differing bits out of 64)
          │
     ┌────┴────┐
    YES        NO

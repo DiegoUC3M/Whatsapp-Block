@@ -112,7 +112,7 @@ class AvatarMatcher {
         for ((contact, hashes) in hashesByContact) {
             for (storedHash in hashes) {
                 val stored = parseHash(storedHash) ?: continue
-                val distance = java.lang.Long.bitCount(observed.toLong() xor stored.toLong())
+                val distance = (observed xor stored).countOneBits()
                 if (distance > maxDistance) continue
 
                 val current = best
@@ -201,19 +201,19 @@ class AvatarMatcher {
         val resized = Bitmap.createScaledBitmap(cropped, HASH_WIDTH, HASH_HEIGHT, true)
         cropped.recycle()
 
-        var hash = 0L
+        var hash = 0uL
         for (y in 0 until HASH_HEIGHT) {
             for (x in 0 until HASH_SIZE) {
                 val leftLuma = luma(resized.getPixel(x, y))
                 val rightLuma = luma(resized.getPixel(x + 1, y))
                 hash = hash shl 1
                 if (leftLuma > rightLuma) {
-                    hash = hash or 1L
+                    hash = hash or 1uL
                 }
             }
         }
         resized.recycle()
-        return hash.toULong().toString(16).padStart(HASH_HEX_LENGTH, '0').lowercase()
+        return hash.toString(16).padStart(HASH_HEX_LENGTH, '0').lowercase()
     }
 
     private fun luma(color: Int): Int {

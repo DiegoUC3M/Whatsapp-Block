@@ -176,10 +176,10 @@ object BlockedContactsRepository {
     fun addContactAvatarHash(context: Context, contact: String, hash: String): Boolean {
         val normalizedHash = normalizeAvatarHash(hash) ?: return false
         val contacts = getBlockedContacts(context)
-        if (contact !in contacts) return false
-        val current = getContactAvatarHashes(context, contact).toMutableSet()
+        val storedContact = contacts.firstOrNull { it.equals(contact, ignoreCase = true) } ?: return false
+        val current = getContactAvatarHashes(context, storedContact).toMutableSet()
         current.add(normalizedHash)
-        prefs(context).edit().putStringSet(KEY_PREFIX_AVATAR_HASHES + contact, current).apply()
+        prefs(context).edit().putStringSet(KEY_PREFIX_AVATAR_HASHES + storedContact, current).apply()
         return true
     }
 
