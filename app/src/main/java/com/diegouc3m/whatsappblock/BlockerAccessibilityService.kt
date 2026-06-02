@@ -65,8 +65,9 @@ class BlockerAccessibilityService : AccessibilityService() {
                     }
                 )
             ) {
-                AvatarMatcher.CaptureRequestStatus.STARTED,
-                AvatarMatcher.CaptureRequestStatus.IN_FLIGHT -> return
+                AvatarMatcher.CaptureRequestStatus.STARTED -> return
+
+                AvatarMatcher.CaptureRequestStatus.IN_FLIGHT,
 
                 AvatarMatcher.CaptureRequestStatus.THROTTLED,
                 AvatarMatcher.CaptureRequestStatus.NO_BOUNDS,

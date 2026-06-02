@@ -20,6 +20,8 @@ object AvatarMatcher {
     private const val D_HASH_WIDTH = 9
     private const val D_HASH_HEIGHT = 8
     private const val MIN_CAPTURE_INTERVAL_MS = 333L
+    private const val SQUARE_ASPECT_RATIO_TOLERANCE = 0.35f
+    private const val IMAGE_VIEW_SCORE_BONUS = 120f
 
     @Volatile
     private var lastCaptureTimestampMs = 0L
@@ -177,7 +179,7 @@ object AvatarMatcher {
         val red = Color.red(pixel)
         val green = Color.green(pixel)
         val blue = Color.blue(pixel)
-        return ((red * 299) + (green * 587) + (blue * 114)) / 1000
+        return ((red * 77) + (green * 150) + (blue * 29)) shr 8
     }
 
     private fun findAvatarBounds(service: AccessibilityService, root: AccessibilityNodeInfo): Rect? {
@@ -221,7 +223,7 @@ object AvatarMatcher {
             val centerX = bounds.centerX().toFloat()
             val centerY = bounds.centerY().toFloat()
 
-            val isSquareEnough = abs(width - height) <= averageSize * 0.35f
+            val isSquareEnough = abs(width - height) <= averageSize * SQUARE_ASPECT_RATIO_TOLERANCE
             val isReasonableSize = width in minSizePx..maxSizePx && height in minSizePx..maxSizePx
             val isNearHeader = centerY <= screenHeight * 0.35f && centerX <= screenWidth * 0.5f
 
@@ -230,7 +232,7 @@ object AvatarMatcher {
                 val imageBonus = if (
                     className.contains("ImageView") || className.contains("ImageButton")
                 ) {
-                    120f
+                    IMAGE_VIEW_SCORE_BONUS
                 } else {
                     0f
                 }

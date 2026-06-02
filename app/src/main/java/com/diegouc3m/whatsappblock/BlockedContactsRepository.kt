@@ -1,6 +1,7 @@
 package com.diegouc3m.whatsappblock
 
 import android.content.Context
+import java.security.MessageDigest
 
 object BlockedContactsRepository {
 
@@ -114,7 +115,9 @@ object BlockedContactsRepository {
     }
 
     private fun avatarHashesKey(name: String): String {
-        val encodedName = name.toByteArray(Charsets.UTF_8).joinToString("") { byte ->
+        val encodedName = MessageDigest.getInstance("SHA-256")
+            .digest(name.toByteArray(Charsets.UTF_8))
+            .joinToString("") { byte ->
             "%02x".format(byte.toInt() and 0xFF)
         }
         return "avatar_hashes_$encodedName"
