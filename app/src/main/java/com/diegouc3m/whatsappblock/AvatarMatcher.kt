@@ -220,6 +220,7 @@ class AvatarMatcher {
         val r = Color.red(color)
         val g = Color.green(color)
         val b = Color.blue(color)
+        // ITU-R BT.601 integer approximation for RGB -> grayscale luminance.
         return (299 * r + 587 * g + 114 * b) / 1000
     }
 

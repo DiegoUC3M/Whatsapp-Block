@@ -13,7 +13,6 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val TAG = "WhatsAppBlocker"
-        private val WHATSAPP_PACKAGES = setOf("com.whatsapp", "com.whatsapp.w4b")
 
         /**
          * Known resource IDs for the contact name in WhatsApp's conversation toolbar.
@@ -56,7 +55,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
-        if (pkg !in WHATSAPP_PACKAGES) return
+        if (pkg !in WhatsAppPackages.ALL) return
         if (cachedBlockedContacts.isEmpty()) return
 
         // React to window state changes (opening a chat) and content changes (re-entering a chat)

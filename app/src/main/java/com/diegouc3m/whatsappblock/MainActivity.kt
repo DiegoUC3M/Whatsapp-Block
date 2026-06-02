@@ -107,8 +107,8 @@ class MainActivity : AppCompatActivity() {
         BlockedContactsRepository.setPendingAvatarEnrollmentContact(this, canonicalName)
         refreshContactList()
 
-        val launchIntent = packageManager.getLaunchIntentForPackage("com.whatsapp")
-            ?: packageManager.getLaunchIntentForPackage("com.whatsapp.w4b")
+        val launchIntent = packageManager.getLaunchIntentForPackage(WhatsAppPackages.WHATSAPP)
+            ?: packageManager.getLaunchIntentForPackage(WhatsAppPackages.WHATSAPP_BUSINESS)
 
         if (launchIntent != null) {
             startActivity(launchIntent)
