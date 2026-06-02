@@ -113,7 +113,7 @@ object BlockedContactsRepository {
     private const val PREFS_NAME = "whatsapp_blocker_prefs"
     private const val KEY_CONTACTS = "blocked_contacts"
     private const val MAX_CONTACT_NAME_LENGTH = 100
-    private const val AVATAR_HASH_LENGTH = 16
+    private const val AVATAR_HASH_HEX_LENGTH = 16
     private const val KEY_PENDING_AVATAR_ENROLLMENT_CONTACT = "pending_avatar_enrollment_contact"
 
     // Per-contact schedule key prefixes
@@ -201,7 +201,7 @@ object BlockedContactsRepository {
 
     private fun normalizeAvatarHash(hash: String): String? {
         val trimmed = hash.trim().lowercase()
-        if (trimmed.length != AVATAR_HASH_LENGTH) return null
+        if (trimmed.length != AVATAR_HASH_HEX_LENGTH) return null
         return if (trimmed.all { it in '0'..'9' || it in 'a'..'f' }) trimmed else null
     }
 

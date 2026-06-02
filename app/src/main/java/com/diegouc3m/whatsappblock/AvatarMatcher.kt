@@ -24,7 +24,7 @@ class AvatarMatcher {
     companion object {
         private const val TAG = "AvatarMatcher"
         private const val HASH_SIZE = 8
-        // dHash compares horizontally adjacent pixels, so width is one pixel larger than height.
+        // 64-bit dHash: resize to 9x8, compare 8 horizontal pairs per row => 8*8 = 64 bits.
         private const val HASH_WIDTH = HASH_SIZE + 1
         private const val HASH_HEIGHT = HASH_SIZE
         private const val HASH_HEX_LENGTH = 16
