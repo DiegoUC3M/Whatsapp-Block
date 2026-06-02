@@ -111,7 +111,7 @@ class AvatarMatcher {
         for ((contact, hashes) in hashesByContact) {
             for (storedHash in hashes) {
                 val stored = parseHash(storedHash) ?: continue
-                val distance = java.lang.Long.bitCount(observed xor stored)
+                val distance = java.lang.Long.bitCount((observed xor stored).toLong())
                 if (distance > maxDistance) continue
 
                 val current = best
@@ -222,10 +222,10 @@ class AvatarMatcher {
         return (299 * r + 587 * g + 114 * b) / 1000
     }
 
-    private fun parseHash(hashHex: String): Long? {
+    private fun parseHash(hashHex: String): ULong? {
         val normalized = hashHex.trim().lowercase()
         return if (normalized.length == 16) {
-            normalized.toULongOrNull(16)?.toLong()
+            normalized.toULongOrNull(16)
         } else {
             null
         }

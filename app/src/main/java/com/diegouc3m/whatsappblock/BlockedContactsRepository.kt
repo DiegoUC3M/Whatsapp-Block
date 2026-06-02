@@ -156,7 +156,7 @@ object BlockedContactsRepository {
             .remove(KEY_PREFIX_SCHEDULE_SLOTS + name)
             .remove(KEY_PREFIX_SCHEDULE_GROUPS + name)
             .remove(KEY_PREFIX_AVATAR_HASHES + name)
-        if (pendingEnrollment.equals(name, ignoreCase = true)) {
+        if (pendingEnrollment?.equals(name, ignoreCase = true) == true) {
             editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
         }
         editor.apply()
