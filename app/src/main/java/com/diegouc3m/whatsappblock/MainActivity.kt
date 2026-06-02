@@ -79,10 +79,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshContactList() {
         val contacts = BlockedContactsRepository.getBlockedContacts(this).toList()
-        adapter.submitSortedList(contacts)
-        adapter.notifyDataSetChanged()
-        binding.tvEmpty.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
-        binding.rvContacts.visibility = if (contacts.isEmpty()) View.GONE else View.VISIBLE
+        val contactItems = contacts.map { contact ->
+            ContactListAdapter.ContactItem(
+                name = contact,
+                avatarHashes = BlockedContactsRepository.getContactAvatarHashes(this, contact).sorted()
+            )
+        }
+        adapter.submitSortedList(contactItems)
+        binding.tvEmpty.visibility = if (contactItems.isEmpty()) View.VISIBLE else View.GONE
+        binding.rvContacts.visibility = if (contactItems.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun armAvatarEnrollment() {

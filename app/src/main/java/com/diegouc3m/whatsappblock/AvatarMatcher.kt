@@ -24,6 +24,7 @@ class AvatarMatcher {
     companion object {
         private const val TAG = "AvatarMatcher"
         private const val HASH_SIZE = 8
+        // dHash compares horizontally adjacent pixels, so width is one pixel larger than height.
         private const val HASH_WIDTH = HASH_SIZE + 1
         private const val HASH_HEIGHT = HASH_SIZE
         private const val SCREENSHOT_COOLDOWN_MS = 350L
@@ -176,7 +177,9 @@ class AvatarMatcher {
         val hardwareBuffer: HardwareBuffer = result.hardwareBuffer ?: return null
         return try {
             val hardwareBitmap = Bitmap.wrapHardwareBuffer(hardwareBuffer, result.colorSpace) ?: return null
-            hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false).also {
+            try {
+                hardwareBitmap.copy(Bitmap.Config.ARGB_8888, false)
+            } finally {
                 hardwareBitmap.recycle()
             }
         } finally {

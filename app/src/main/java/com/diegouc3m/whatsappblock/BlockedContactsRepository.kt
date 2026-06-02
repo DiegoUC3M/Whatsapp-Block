@@ -148,19 +148,18 @@ object BlockedContactsRepository {
         val current = getBlockedContacts(context).toMutableSet()
         current.remove(name)
         val pendingEnrollment = getPendingAvatarEnrollmentContact(context)
+        val editor = prefs(context).edit()
         // Also remove per-contact schedule data
-        prefs(context).edit()
+        editor
             .putStringSet(KEY_CONTACTS, current)
             .remove(KEY_PREFIX_SCHEDULE_ENABLED + name)
             .remove(KEY_PREFIX_SCHEDULE_SLOTS + name)
             .remove(KEY_PREFIX_SCHEDULE_GROUPS + name)
             .remove(KEY_PREFIX_AVATAR_HASHES + name)
-            .apply {
-                if (pendingEnrollment.equals(name, ignoreCase = true)) {
-                    remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
-                }
-            }
-            .apply()
+        if (pendingEnrollment.equals(name, ignoreCase = true)) {
+            editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
+        }
+        editor.apply()
     }
 
     fun getContactAvatarHashes(context: Context, contact: String): Set<String> {
