@@ -8,18 +8,24 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.diegouc3m.whatsappblock.R
 import com.diegouc3m.whatsappblock.BlockedContactsRepository
 import com.diegouc3m.whatsappblock.TimeSlot
 import com.diegouc3m.whatsappblock.databinding.ItemContactBinding
 
 class ContactListAdapter(
     private val onDelete: (String) -> Unit
-) : ListAdapter<String, ContactListAdapter.ViewHolder>(StringDiffCallback()) {
+) : ListAdapter<ContactListAdapter.ContactItem, ContactListAdapter.ViewHolder>(ContactDiffCallback()) {
+
+    data class ContactItem(
+        val name: String,
+        val avatarHashes: List<String>
+    )
 
     private val expandedContacts = mutableSetOf<String>()
 
-    fun submitSortedList(list: List<String>) {
-        submitList(list.sorted())
+    fun submitSortedList(list: List<ContactItem>) {
+        submitList(list.sortedBy { it.name.lowercase() })
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -38,10 +44,17 @@ class ContactListAdapter(
 
         private var groupAdapter: ScheduleGroupAdapter? = null
 
-        fun bind(name: String) {
+        fun bind(item: ContactItem) {
             val context = binding.root.context
+            val name = item.name
             binding.tvContactName.text = name
             binding.btnDelete.setOnClickListener { onDelete(name) }
+            val avatarHashes = item.avatarHashes
+            binding.tvAvatarHashes.text = if (avatarHashes.isEmpty()) {
+                context.getString(R.string.avatar_hashes_none)
+            } else {
+                context.getString(R.string.avatar_hashes_label, avatarHashes.joinToString(", "))
+            }
 
             // Expand/collapse
             val isExpanded = name in expandedContacts
@@ -131,8 +144,13 @@ class ContactListAdapter(
         }
     }
 
-    private class StringDiffCallback : DiffUtil.ItemCallback<String>() {
-        override fun areItemsTheSame(oldItem: String, newItem: String) = oldItem == newItem
-        override fun areContentsTheSame(oldItem: String, newItem: String) = oldItem == newItem
+    private class ContactDiffCallback : DiffUtil.ItemCallback<ContactItem>() {
+        override fun areItemsTheSame(oldItem: ContactItem, newItem: ContactItem): Boolean {
+            return oldItem.name == newItem.name
+        }
+
+        override fun areContentsTheSame(oldItem: ContactItem, newItem: ContactItem): Boolean {
+            return oldItem == newItem
+        }
     }
 }

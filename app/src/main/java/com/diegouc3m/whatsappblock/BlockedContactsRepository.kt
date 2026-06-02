@@ -113,11 +113,14 @@ object BlockedContactsRepository {
     private const val PREFS_NAME = "whatsapp_blocker_prefs"
     private const val KEY_CONTACTS = "blocked_contacts"
     private const val MAX_CONTACT_NAME_LENGTH = 100
+    private const val AVATAR_HASH_HEX_LENGTH = 16
+    private const val KEY_PENDING_AVATAR_ENROLLMENT_CONTACT = "pending_avatar_enrollment_contact"
 
     // Per-contact schedule key prefixes
     private const val KEY_PREFIX_SCHEDULE_ENABLED = "contact_schedule_enabled_"
     private const val KEY_PREFIX_SCHEDULE_SLOTS = "contact_schedule_slots_"
     private const val KEY_PREFIX_SCHEDULE_GROUPS = "contact_schedule_groups_"
+    private const val KEY_PREFIX_AVATAR_HASHES = "contact_avatar_hashes_"
 
     private const val GROUP_SEPARATOR = ";"
 
@@ -145,13 +148,61 @@ object BlockedContactsRepository {
     fun removeContact(context: Context, name: String) {
         val current = getBlockedContacts(context).toMutableSet()
         current.remove(name)
+        val pendingEnrollment = getPendingAvatarEnrollmentContact(context)
+        val editor = prefs(context).edit()
         // Also remove per-contact schedule data
-        prefs(context).edit()
+        editor
             .putStringSet(KEY_CONTACTS, current)
             .remove(KEY_PREFIX_SCHEDULE_ENABLED + name)
             .remove(KEY_PREFIX_SCHEDULE_SLOTS + name)
             .remove(KEY_PREFIX_SCHEDULE_GROUPS + name)
-            .apply()
+            .remove(KEY_PREFIX_AVATAR_HASHES + name)
+        if (pendingEnrollment?.equals(name, ignoreCase = true) == true) {
+            editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
+        }
+        editor.apply()
+    }
+
+    fun getContactAvatarHashes(context: Context, contact: String): Set<String> {
+        return prefs(context).getStringSet(KEY_PREFIX_AVATAR_HASHES + contact, emptySet()) ?: emptySet()
+    }
+
+    fun getBlockedContactsAvatarHashes(context: Context): Map<String, Set<String>> {
+        val contacts = getBlockedContacts(context)
+        if (contacts.isEmpty()) return emptyMap()
+        return contacts.associateWith { getContactAvatarHashes(context, it) }
+    }
+
+    fun addContactAvatarHash(context: Context, contact: String, hash: String): Boolean {
+        val normalizedHash = normalizeAvatarHash(hash) ?: return false
+        val contacts = getBlockedContacts(context)
+        val storedContact = contacts.firstOrNull { it.equals(contact, ignoreCase = true) } ?: return false
+        val current = getContactAvatarHashes(context, storedContact).toMutableSet()
+        current.add(normalizedHash)
+        prefs(context).edit().putStringSet(KEY_PREFIX_AVATAR_HASHES + storedContact, current).apply()
+        return true
+    }
+
+    fun getPendingAvatarEnrollmentContact(context: Context): String? {
+        val raw = prefs(context).getString(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT, null)
+        return raw?.trim()?.takeIf { it.isNotEmpty() }
+    }
+
+    fun setPendingAvatarEnrollmentContact(context: Context, contact: String?) {
+        val editor = prefs(context).edit()
+        val normalizedContact = contact?.trim()?.takeIf { it.isNotEmpty() }
+        if (normalizedContact == null) {
+            editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
+        } else {
+            editor.putString(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT, normalizedContact)
+        }
+        editor.apply()
+    }
+
+    private fun normalizeAvatarHash(hash: String): String? {
+        val trimmed = hash.trim().lowercase()
+        if (trimmed.length != AVATAR_HASH_HEX_LENGTH) return null
+        return if (trimmed.all { it in '0'..'9' || it in 'a'..'f' }) trimmed else null
     }
 
     // --- Per-Contact Schedule ---

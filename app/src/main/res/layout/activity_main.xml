@@ -48,6 +48,13 @@
             android:text="@string/btn_add" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnEnrollAvatar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/btn_enroll_avatar" />
+
     <!-- List title -->
     <TextView
         android:layout_width="match_parent"

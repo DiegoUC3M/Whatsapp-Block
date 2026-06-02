@@ -53,6 +53,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.btnAdd.setOnClickListener { addContact() }
+        binding.btnEnrollAvatar.setOnClickListener { armAvatarEnrollment() }
 
         binding.etContactName.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -78,9 +79,51 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshContactList() {
         val contacts = BlockedContactsRepository.getBlockedContacts(this).toList()
-        adapter.submitSortedList(contacts)
-        binding.tvEmpty.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
-        binding.rvContacts.visibility = if (contacts.isEmpty()) View.GONE else View.VISIBLE
+        val contactItems = contacts.map { contact ->
+            ContactListAdapter.ContactItem(
+                name = contact,
+                avatarHashes = BlockedContactsRepository.getContactAvatarHashes(this, contact).sorted()
+            )
+        }
+        adapter.submitSortedList(contactItems)
+        binding.tvEmpty.visibility = if (contactItems.isEmpty()) View.VISIBLE else View.GONE
+        binding.rvContacts.visibility = if (contactItems.isEmpty()) View.GONE else View.VISIBLE
+    }
+
+    private fun armAvatarEnrollment() {
+        val name = binding.etContactName.text?.toString()?.trim() ?: ""
+        if (name.isEmpty()) {
+            Snackbar.make(binding.root, getString(R.string.error_empty_name), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        val blockedContacts = BlockedContactsRepository.getBlockedContacts(this)
+        val canonicalName = blockedContacts.firstOrNull { it.equals(name, ignoreCase = true) } ?: name
+        if (canonicalName == name && name !in blockedContacts && !BlockedContactsRepository.addContact(this, name)) {
+            Snackbar.make(binding.root, getString(R.string.error_name_too_long), Snackbar.LENGTH_SHORT).show()
+            return
+        }
+
+        BlockedContactsRepository.setPendingAvatarEnrollmentContact(this, canonicalName)
+        refreshContactList()
+
+        val launchIntent = packageManager.getLaunchIntentForPackage(WhatsAppPackages.WHATSAPP)
+            ?: packageManager.getLaunchIntentForPackage(WhatsAppPackages.WHATSAPP_BUSINESS)
+
+        if (launchIntent != null) {
+            startActivity(launchIntent)
+            Snackbar.make(
+                binding.root,
+                getString(R.string.avatar_enrollment_armed, canonicalName),
+                Snackbar.LENGTH_LONG
+            ).show()
+        } else {
+            Snackbar.make(
+                binding.root,
+                getString(R.string.avatar_enrollment_armed_no_whatsapp, canonicalName),
+                Snackbar.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun refreshServiceStatus() {
