@@ -1,20 +1,25 @@
 package com.diegouc3m.whatsappblock.ui
 
+import android.app.TimePickerDialog
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
+import com.diegouc3m.whatsappblock.BlockedContactsRepository
+import com.diegouc3m.whatsappblock.TimeSlot
 import com.diegouc3m.whatsappblock.databinding.ItemContactBinding
 
 class ContactListAdapter(
     private val onDelete: (String) -> Unit
-) : RecyclerView.Adapter<ContactListAdapter.ViewHolder>() {
+) : ListAdapter<String, ContactListAdapter.ViewHolder>(StringDiffCallback()) {
 
-    private val items = mutableListOf<String>()
+    private val expandedContacts = mutableSetOf<String>()
 
-    fun submitList(list: List<String>) {
-        items.clear()
-        items.addAll(list.sorted())
-        notifyDataSetChanged()
+    fun submitSortedList(list: List<String>) {
+        submitList(list.sorted())
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
@@ -25,17 +30,109 @@ class ContactListAdapter(
     }
 
     override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        holder.bind(items[position])
+        holder.bind(getItem(position))
     }
-
-    override fun getItemCount() = items.size
 
     inner class ViewHolder(private val binding: ItemContactBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
+        private var groupAdapter: ScheduleGroupAdapter? = null
+
         fun bind(name: String) {
+            val context = binding.root.context
             binding.tvContactName.text = name
             binding.btnDelete.setOnClickListener { onDelete(name) }
+
+            // Expand/collapse
+            val isExpanded = name in expandedContacts
+            binding.layoutContactSchedule.visibility = if (isExpanded) View.VISIBLE else View.GONE
+
+            binding.btnExpandSchedule.setOnClickListener {
+                if (name in expandedContacts) {
+                    expandedContacts.remove(name)
+                } else {
+                    expandedContacts.add(name)
+                }
+                val pos = bindingAdapterPosition
+                if (pos != RecyclerView.NO_POSITION) {
+                    notifyItemChanged(pos)
+                }
+            }
+
+            if (!isExpanded) return
+
+            // Schedule switch
+            val scheduleEnabled = BlockedContactsRepository.isContactScheduleEnabled(context, name)
+            binding.switchContactSchedule.setOnCheckedChangeListener(null)
+            binding.switchContactSchedule.isChecked = scheduleEnabled
+            binding.layoutContactSlots.visibility = if (scheduleEnabled) View.VISIBLE else View.GONE
+
+            binding.switchContactSchedule.setOnCheckedChangeListener { _, isChecked ->
+                BlockedContactsRepository.setContactScheduleEnabled(context, name, isChecked)
+                binding.layoutContactSlots.visibility = if (isChecked) View.VISIBLE else View.GONE
+            }
+
+            // Schedule groups RecyclerView
+            if (binding.rvContactGroups.layoutManager == null) {
+                binding.rvContactGroups.layoutManager = LinearLayoutManager(context)
+            }
+            val adapter = ScheduleGroupAdapter(
+                onToggleDay = { groupIndex, day, enabled ->
+                    BlockedContactsRepository.setContactScheduleGroupDay(context, name, groupIndex, day, enabled)
+                    refreshGroups(name)
+                },
+                onAddSlot = { groupIndex ->
+                    BlockedContactsRepository.addContactScheduleGroupSlot(
+                        context, name, groupIndex, TimeSlot(0, 0, 23, 59)
+                    )
+                    refreshGroups(name)
+                },
+                onEditSlotStart = { groupIndex, slotIndex, slot ->
+                    TimePickerDialog(context, { _, hour, minute ->
+                        BlockedContactsRepository.updateContactScheduleGroupSlot(
+                            context, name, groupIndex, slotIndex,
+                            slot.copy(startHour = hour, startMinute = minute)
+                        )
+                        refreshGroups(name)
+                    }, slot.startHour, slot.startMinute, true).show()
+                },
+                onEditSlotEnd = { groupIndex, slotIndex, slot ->
+                    TimePickerDialog(context, { _, hour, minute ->
+                        BlockedContactsRepository.updateContactScheduleGroupSlot(
+                            context, name, groupIndex, slotIndex,
+                            slot.copy(endHour = hour, endMinute = minute)
+                        )
+                        refreshGroups(name)
+                    }, slot.endHour, slot.endMinute, true).show()
+                },
+                onDeleteSlot = { groupIndex, slotIndex ->
+                    BlockedContactsRepository.removeContactScheduleGroupSlot(context, name, groupIndex, slotIndex)
+                    refreshGroups(name)
+                },
+                onDeleteGroup = { groupIndex ->
+                    BlockedContactsRepository.removeContactScheduleGroup(context, name, groupIndex)
+                    refreshGroups(name)
+                }
+            )
+            groupAdapter = adapter
+            binding.rvContactGroups.adapter = adapter
+            refreshGroups(name)
+
+            binding.btnAddContactGroup.setOnClickListener {
+                BlockedContactsRepository.addContactScheduleGroup(context, name)
+                refreshGroups(name)
+            }
         }
+
+        private fun refreshGroups(contact: String) {
+            val context = binding.root.context
+            val groups = BlockedContactsRepository.getContactScheduleGroups(context, contact)
+            groupAdapter?.submit(groups)
+        }
+    }
+
+    private class StringDiffCallback : DiffUtil.ItemCallback<String>() {
+        override fun areItemsTheSame(oldItem: String, newItem: String) = oldItem == newItem
+        override fun areContentsTheSame(oldItem: String, newItem: String) = oldItem == newItem
     }
 }

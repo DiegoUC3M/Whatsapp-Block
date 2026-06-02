@@ -22,6 +22,9 @@ class MainActivity : AppCompatActivity() {
         binding = ActivityMainBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        // Migrate legacy global schedule to per-contact
+        BlockedContactsRepository.migrateGlobalScheduleIfNeeded(this)
+
         setupRecyclerView()
         setupListeners()
     }
@@ -65,14 +68,17 @@ class MainActivity : AppCompatActivity() {
             Snackbar.make(binding.root, getString(R.string.error_empty_name), Snackbar.LENGTH_SHORT).show()
             return
         }
-        BlockedContactsRepository.addContact(this, name)
+        if (!BlockedContactsRepository.addContact(this, name)) {
+            Snackbar.make(binding.root, getString(R.string.error_name_too_long), Snackbar.LENGTH_SHORT).show()
+            return
+        }
         binding.etContactName.text?.clear()
         refreshContactList()
     }
 
     private fun refreshContactList() {
         val contacts = BlockedContactsRepository.getBlockedContacts(this).toList()
-        adapter.submitList(contacts)
+        adapter.submitSortedList(contacts)
         binding.tvEmpty.visibility = if (contacts.isEmpty()) View.VISIBLE else View.GONE
         binding.rvContacts.visibility = if (contacts.isEmpty()) View.GONE else View.VISIBLE
     }
@@ -88,13 +94,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun isAccessibilityServiceEnabled(): Boolean {
-        val expectedComponent = "$packageName/.BlockerAccessibilityService"
+        val expectedComponent = "$packageName/${BlockerAccessibilityService::class.java.name}"
         val enabledServices = Settings.Secure.getString(
             contentResolver,
             Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
         ) ?: return false
         return enabledServices.split(":").any {
-            it.equals(expectedComponent, ignoreCase = true)
+            it.equals(expectedComponent, ignoreCase = true) ||
+                it.equals("$packageName/.BlockerAccessibilityService", ignoreCase = true)
         }
     }
 }

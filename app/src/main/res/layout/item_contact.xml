@@ -2,23 +2,90 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:orientation="horizontal"
-    android:paddingVertical="8dp"
-    android:gravity="center_vertical">
+    android:orientation="vertical"
+    android:paddingVertical="8dp">
 
-    <TextView
-        android:id="@+id/tvContactName"
-        android:layout_width="0dp"
+    <!-- Contact header row -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_weight="1"
-        android:textSize="15sp" />
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-    <ImageButton
-        android:id="@+id/btnDelete"
-        android:layout_width="wrap_content"
+        <TextView
+            android:id="@+id/tvContactName"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textSize="15sp" />
+
+        <ImageButton
+            android:id="@+id/btnExpandSchedule"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@android:drawable/ic_menu_more"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/toggle_schedule" />
+
+        <ImageButton
+            android:id="@+id/btnDelete"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:src="@android:drawable/ic_menu_delete"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/delete_contact" />
+    </LinearLayout>
+
+    <!-- Per-contact schedule section (expandable) -->
+    <LinearLayout
+        android:id="@+id/layoutContactSchedule"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:src="@android:drawable/ic_menu_delete"
-        android:background="?attr/selectableItemBackgroundBorderless"
-        android:contentDescription="Delete contact" />
+        android:orientation="vertical"
+        android:paddingStart="16dp"
+        android:paddingTop="8dp"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/schedule_title"
+                android:textSize="13sp" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchContactSchedule"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/layoutContactSlots"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvContactGroups"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+
+            <Button
+                android:id="@+id/btnAddContactGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:text="@string/btn_add_group"
+                android:textSize="12sp"
+                style="?attr/materialButtonOutlinedStyle" />
+        </LinearLayout>
+    </LinearLayout>
 
 </LinearLayout>

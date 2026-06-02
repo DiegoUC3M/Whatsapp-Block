@@ -10,4 +10,20 @@
     <string name="blocked_contacts_title">Blocked Contacts</string>
     <string name="no_contacts">No blocked contacts yet</string>
     <string name="error_empty_name">Please enter a contact name</string>
+    <string name="error_name_too_long">Contact name is too long (max 100 characters)</string>
+    <string name="delete_contact">Delete contact</string>
+    <string name="toggle_schedule">Toggle schedule</string>
+    <string name="schedule_title">⏰ Schedule</string>
+    <string name="btn_add_slot">+ Add time slot</string>
+    <string name="delete_slot">Delete time slot</string>
+    <string name="btn_add_group">+ Add day group</string>
+    <string name="delete_group">Delete day group</string>
+    <string name="group_days_label">Days</string>
+    <string name="day_mon">Mon</string>
+    <string name="day_tue">Tue</string>
+    <string name="day_wed">Wed</string>
+    <string name="day_thu">Thu</string>
+    <string name="day_fri">Fri</string>
+    <string name="day_sat">Sat</string>
+    <string name="day_sun">Sun</string>
 </resources>
