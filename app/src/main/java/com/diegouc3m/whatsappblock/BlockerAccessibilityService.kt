@@ -203,7 +203,9 @@ class BlockerAccessibilityService : AccessibilityService() {
                     try {
                         val text = node.text?.toString()
                         if (!text.isNullOrBlank()) {
-                            Log.d(TAG, "Conversation title detected: \"$text\" (blocked=$cachedBlockedContacts)")
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "Conversation title detected: \"$text\" (blocked=$cachedBlockedContacts)")
+                            }
                             val matched = findMatchingBlockedContact(text)
                             if (matched != null) return matched
                         }
@@ -254,7 +256,9 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val text = node.text?.toString()
         if (!text.isNullOrBlank()) {
-            Log.d(TAG, "Header text node: \"$text\"")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Header text node: \"$text\"")
+            }
             val matched = findMatchingBlockedContact(text)
             if (matched != null) return matched
         }
