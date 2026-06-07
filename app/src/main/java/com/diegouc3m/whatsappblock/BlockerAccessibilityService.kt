@@ -34,6 +34,14 @@ class BlockerAccessibilityService : AccessibilityService() {
          * guarantees we don't leave the contact permanently unblocked if capture fails.
          */
         private const val ENROLLMENT_WINDOW_MS = 20_000L
+
+        /**
+         * Delay before re-evaluating the active window after a
+         * TYPE_WINDOW_STATE_CHANGED event. Gives WhatsApp time to populate the
+         * conversation toolbar title (which is sometimes set after the window
+         * transition without firing a follow-up content-change event we receive).
+         */
+        private val RECHECK_DELAYS_MS = longArrayOf(150L, 400L, 900L)
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
@@ -41,6 +49,15 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var cachedHasAnyAvatarHashes: Boolean = false
     private var lastBackActionTime: Long = 0L
     private val avatarMatcher = AvatarMatcher()
+
+    // Main-thread handler used to schedule delayed re-checks after a WhatsApp
+    // window transition. WhatsApp typically fires TYPE_WINDOW_STATE_CHANGED with
+    // the conversation toolbar present but the title TextView not yet populated;
+    // sometimes no follow-up TYPE_WINDOW_CONTENT_CHANGED reaches us for the
+    // title text update, so the chat would open un-blocked. Re-evaluating a few
+    // hundred ms later catches the late-rendered title.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val delayedRecheck = Runnable { evaluateActiveWindow() }
 
     // In-memory enrollment window tracking (not persisted): which contact we are
     // currently trying to enroll and when that attempt window started.
@@ -64,6 +81,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         BlockedContactsRepository.unregisterListener(applicationContext, prefsListener)
+        mainHandler.removeCallbacks(delayedRecheck)
         super.onDestroy()
     }
 
@@ -81,6 +99,28 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
 
+        evaluateActiveWindow()
+
+        // WhatsApp frequently fires TYPE_WINDOW_STATE_CHANGED before the chat
+        // header title is populated and does not always emit a content-change
+        // event we can react to once the title appears. Re-evaluating a few
+        // hundred ms later catches that late-rendered title and fixes the
+        // "blocking only works sometimes" behavior.
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            mainHandler.removeCallbacks(delayedRecheck)
+            for (delay in RECHECK_DELAYS_MS) {
+                mainHandler.postDelayed(delayedRecheck, delay)
+            }
+        }
+    }
+
+    /**
+     * Inspects the current foreground window and applies the blocking / avatar
+     * enrollment logic. Safe to call from event handlers and from delayed
+     * re-checks scheduled on the main handler.
+     */
+    private fun evaluateActiveWindow() {
+        if (cachedBlockedContacts.isEmpty()) return
         val root = rootInActiveWindow ?: return
         try {
             val matchedByName = findBlockedContactInChat(root)
@@ -190,7 +230,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             action()
         } else {
-            Handler(Looper.getMainLooper()).post(action)
+            mainHandler.post(action)
         }
     }
 
