@@ -70,7 +70,10 @@ class BlockerAccessibilityService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
         if (pkg !in WhatsAppPackages.ALL) return
-        if (cachedBlockedContacts.isEmpty()) return
+        if (cachedBlockedContacts.isEmpty()) {
+            Log.d(TAG, "WhatsApp event received but no blocked contacts are configured")
+            return
+        }
 
         // React to window state changes (opening a chat) and content changes (re-entering a chat)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
@@ -200,6 +203,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                     try {
                         val text = node.text?.toString()
                         if (!text.isNullOrBlank()) {
+                            Log.d(TAG, "Conversation title detected: \"$text\" (blocked=$cachedBlockedContacts)")
                             val matched = findMatchingBlockedContact(text)
                             if (matched != null) return matched
                         }
@@ -250,6 +254,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val text = node.text?.toString()
         if (!text.isNullOrBlank()) {
+            Log.d(TAG, "Header text node: \"$text\"")
             val matched = findMatchingBlockedContact(text)
             if (matched != null) return matched
         }
@@ -273,7 +278,14 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun findMatchingBlockedContact(text: String): String? {
-        return cachedBlockedContacts.firstOrNull { text.equals(it, ignoreCase = true) }
+        // Use a case-insensitive substring match (not strict equality): WhatsApp's
+        // header text can carry extra characters (status suffixes, invisible
+        // bidi/emoji markers, "(you)", typing indicators…) that would defeat an
+        // exact comparison and silently disable blocking. Matching within the
+        // conversation header only keeps this from triggering on the chat list.
+        return cachedBlockedContacts.firstOrNull { name ->
+            text.contains(name, ignoreCase = true)
+        }
     }
 
     override fun onInterrupt() {
