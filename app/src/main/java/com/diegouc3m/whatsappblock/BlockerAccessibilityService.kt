@@ -71,7 +71,9 @@ class BlockerAccessibilityService : AccessibilityService() {
         val pkg = event.packageName?.toString() ?: return
         if (pkg !in WhatsAppPackages.ALL) return
         if (cachedBlockedContacts.isEmpty()) {
-            Log.d(TAG, "WhatsApp event received but no blocked contacts are configured")
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "WhatsApp event received but no blocked contacts are configured")
+            }
             return
         }
 
@@ -115,7 +117,9 @@ class BlockerAccessibilityService : AccessibilityService() {
 
                 // Window elapsed without a successful capture: give up enrolling so the
                 // contact resumes normal blocking instead of staying suppressed forever.
-                Log.d(TAG, "Avatar enrollment window expired for $pendingEnrollment — giving up")
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Avatar enrollment window expired for $pendingEnrollment — giving up")
+                }
                 BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
                 resetEnrollmentTracking()
             }
