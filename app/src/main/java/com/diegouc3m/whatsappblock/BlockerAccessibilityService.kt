@@ -114,7 +114,7 @@ class BlockerAccessibilityService : AccessibilityService() {
                 // contact resumes normal blocking instead of staying suppressed forever.
                 Log.d(TAG, "Avatar enrollment window expired for $pendingEnrollment — giving up")
                 BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
-                enrollmentContact = null
+                resetEnrollmentTracking()
             }
 
             // --- Normal blocking -------------------------------------------------
@@ -147,7 +147,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     private fun enrollPendingContactAvatarHash(pendingContact: String?, hash: String) {
         val contact = pendingContact ?: return
-        enrollmentContact = null
+        resetEnrollmentTracking()
         val blockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
         if (blockedContacts.none { it.equals(contact, ignoreCase = true) }) {
             BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
@@ -160,6 +160,11 @@ class BlockerAccessibilityService : AccessibilityService() {
             cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
         }
         BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
+    }
+
+    private fun resetEnrollmentTracking() {
+        enrollmentContact = null
+        enrollmentStartElapsed = 0L
     }
 
     private fun maybeBlockContact(contact: String?, reason: String) {
