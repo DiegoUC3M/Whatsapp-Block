@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.content.SharedPreferences
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -25,6 +26,22 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         /** Cooldown to prevent rapid repeated back actions causing a loop. */
         private const val BACK_ACTION_COOLDOWN_MS = 800L
+
+        /**
+         * How long (after the user arms avatar enrollment and opens the chat) we keep
+         * trying to capture the avatar before giving up. While enrolling, blocking is
+         * suppressed for that contact so the screenshot can be taken; bounding the window
+         * guarantees we don't leave the contact permanently unblocked if capture fails.
+         */
+        private const val ENROLLMENT_WINDOW_MS = 20_000L
+
+        /**
+         * Delay before re-evaluating the active window after a
+         * TYPE_WINDOW_STATE_CHANGED event. Gives WhatsApp time to populate the
+         * conversation toolbar title (which is sometimes set after the window
+         * transition without firing a follow-up content-change event we receive).
+         */
+        private val RECHECK_DELAYS_MS = longArrayOf(150L, 400L, 900L)
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
@@ -32,6 +49,20 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var cachedHasAnyAvatarHashes: Boolean = false
     private var lastBackActionTime: Long = 0L
     private val avatarMatcher = AvatarMatcher()
+
+    // Main-thread handler used to schedule delayed re-checks after a WhatsApp
+    // window transition. WhatsApp typically fires TYPE_WINDOW_STATE_CHANGED with
+    // the conversation toolbar present but the title TextView not yet populated;
+    // sometimes no follow-up TYPE_WINDOW_CONTENT_CHANGED reaches us for the
+    // title text update, so the chat would open un-blocked. Re-evaluating a few
+    // hundred ms later catches the late-rendered title.
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val delayedRecheck = Runnable { evaluateActiveWindow() }
+
+    // In-memory enrollment window tracking (not persisted): which contact we are
+    // currently trying to enroll and when that attempt window started.
+    private var enrollmentContact: String? = null
+    private var enrollmentStartElapsed: Long = 0L
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -50,53 +81,111 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     override fun onDestroy() {
         BlockedContactsRepository.unregisterListener(applicationContext, prefsListener)
+        mainHandler.removeCallbacks(delayedRecheck)
         super.onDestroy()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
         val pkg = event.packageName?.toString() ?: return
         if (pkg !in WhatsAppPackages.ALL) return
-        if (cachedBlockedContacts.isEmpty()) return
+        if (cachedBlockedContacts.isEmpty()) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "WhatsApp event received but no blocked contacts are configured")
+            }
+            return
+        }
 
         // React to window state changes (opening a chat) and content changes (re-entering a chat)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
 
+        evaluateActiveWindow()
+
+        // WhatsApp frequently fires TYPE_WINDOW_STATE_CHANGED before the chat
+        // header title is populated and does not always emit a content-change
+        // event we can react to once the title appears. Re-evaluating a few
+        // hundred ms later catches that late-rendered title and fixes the
+        // "blocking only works sometimes" behavior.
+        if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            mainHandler.removeCallbacks(delayedRecheck)
+            for (delay in RECHECK_DELAYS_MS) {
+                mainHandler.postDelayed(delayedRecheck, delay)
+            }
+        }
+    }
+
+    /**
+     * Inspects the current foreground window and applies the blocking / avatar
+     * enrollment logic. Safe to call from event handlers and from delayed
+     * re-checks scheduled on the main handler.
+     */
+    private fun evaluateActiveWindow() {
+        if (cachedBlockedContacts.isEmpty()) return
         val root = rootInActiveWindow ?: return
         try {
-            val fallbackByName = findBlockedContactInChat(root)
-            val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
-            val shouldAttemptAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                (pendingEnrollment != null || cachedHasAnyAvatarHashes)
+            val matchedByName = findBlockedContactInChat(root)
+            val canCaptureAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-            if (!shouldAttemptAvatar) {
-                maybeBlockContact(fallbackByName, "name")
+            // --- Enrollment mode -------------------------------------------------
+            // While the user is enrolling a contact's avatar, suppress blocking for
+            // THAT contact so the screenshot can be captured, but keep blocking any
+            // other blocked contact by name. The window is time-bounded so a failed
+            // capture can never leave the contact permanently unblocked.
+            val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
+            if (pendingEnrollment != null && canCaptureAvatar) {
+                if (!pendingEnrollment.equals(enrollmentContact, ignoreCase = true)) {
+                    enrollmentContact = pendingEnrollment
+                    enrollmentStartElapsed = SystemClock.elapsedRealtime()
+                }
+
+                val withinWindow =
+                    SystemClock.elapsedRealtime() - enrollmentStartElapsed <= ENROLLMENT_WINDOW_MS
+                if (withinWindow) {
+                    avatarMatcher.captureAvatarHash(this, root) { observedHash ->
+                        runOnMainThread {
+                            if (!observedHash.isNullOrBlank()) {
+                                enrollPendingContactAvatarHash(pendingEnrollment, observedHash)
+                            }
+                        }
+                    }
+                    // Still block other blocked contacts while enrolling this one.
+                    if (matchedByName != null && !matchedByName.equals(pendingEnrollment, ignoreCase = true)) {
+                        maybeBlockContact(matchedByName, "name")
+                    }
+                    return
+                }
+
+                // Window elapsed without a successful capture: give up enrolling so the
+                // contact resumes normal blocking instead of staying suppressed forever.
+                if (BuildConfig.DEBUG) {
+                    Log.d(TAG, "Avatar enrollment window expired for $pendingEnrollment — giving up")
+                }
+                BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
+                resetEnrollmentTracking()
+            }
+
+            // --- Normal blocking -------------------------------------------------
+            // Name matching is the reliable, synchronous primary mechanism.
+            if (matchedByName != null) {
+                maybeBlockContact(matchedByName, "name")
                 return
             }
 
-            val started = avatarMatcher.captureAvatarHash(this, root) { observedHash ->
-                runOnMainThread {
-                    if (!observedHash.isNullOrBlank()) {
-                        enrollPendingContactAvatarHash(pendingEnrollment, observedHash)
-                    }
-
-                    val avatarMatch = observedHash?.let {
-                        avatarMatcher.findBestMatch(it, cachedAvatarHashesByContact)
-                    }
-                    if (avatarMatch != null) {
+            // Best-effort secondary path: avatar matching for chats that didn't match
+            // by name (API 30+ only, and only when we actually have stored hashes).
+            if (canCaptureAvatar && cachedHasAnyAvatarHashes) {
+                avatarMatcher.captureAvatarHash(this, root) { observedHash ->
+                    runOnMainThread {
+                        val avatarMatch = observedHash?.let {
+                            avatarMatcher.findBestMatch(it, cachedAvatarHashesByContact)
+                        } ?: return@runOnMainThread
                         Log.d(
                             TAG,
                             "Avatar match: ${avatarMatch.contact} (distance=${avatarMatch.distance}, hash=${avatarMatch.observedHash})"
                         )
+                        maybeBlockContact(avatarMatch.contact, "avatar")
                     }
-                    val contactToBlock = avatarMatch?.contact ?: fallbackByName
-                    val reason = if (avatarMatch != null) "avatar" else "name"
-                    maybeBlockContact(contactToBlock, reason)
                 }
-            }
-
-            if (!started) {
-                maybeBlockContact(fallbackByName, "name")
             }
         } finally {
             root.recycle()
@@ -105,6 +194,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     private fun enrollPendingContactAvatarHash(pendingContact: String?, hash: String) {
         val contact = pendingContact ?: return
+        resetEnrollmentTracking()
         val blockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
         if (blockedContacts.none { it.equals(contact, ignoreCase = true) }) {
             BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
@@ -117,6 +207,11 @@ class BlockerAccessibilityService : AccessibilityService() {
             cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
         }
         BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
+    }
+
+    private fun resetEnrollmentTracking() {
+        enrollmentContact = null
+        enrollmentStartElapsed = 0L
     }
 
     private fun maybeBlockContact(contact: String?, reason: String) {
@@ -135,7 +230,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         if (Looper.myLooper() == Looper.getMainLooper()) {
             action()
         } else {
-            Handler(Looper.getMainLooper()).post(action)
+            mainHandler.post(action)
         }
     }
 
@@ -152,6 +247,9 @@ class BlockerAccessibilityService : AccessibilityService() {
                     try {
                         val text = node.text?.toString()
                         if (!text.isNullOrBlank()) {
+                            if (BuildConfig.DEBUG) {
+                                Log.d(TAG, "Conversation title detected: \"$text\" (blocked=$cachedBlockedContacts)")
+                            }
                             val matched = findMatchingBlockedContact(text)
                             if (matched != null) return matched
                         }
@@ -202,6 +300,9 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val text = node.text?.toString()
         if (!text.isNullOrBlank()) {
+            if (BuildConfig.DEBUG) {
+                Log.d(TAG, "Header text node: \"$text\"")
+            }
             val matched = findMatchingBlockedContact(text)
             if (matched != null) return matched
         }
@@ -225,7 +326,14 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun findMatchingBlockedContact(text: String): String? {
-        return cachedBlockedContacts.firstOrNull { text.equals(it, ignoreCase = true) }
+        // Use a case-insensitive substring match (not strict equality): WhatsApp's
+        // header text can carry extra characters (status suffixes, invisible
+        // bidi/emoji markers, "(you)", typing indicators…) that would defeat an
+        // exact comparison and silently disable blocking. Matching within the
+        // conversation header only keeps this from triggering on the chat list.
+        return cachedBlockedContacts.firstOrNull { name ->
+            text.contains(name, ignoreCase = true)
+        }
     }
 
     override fun onInterrupt() {
