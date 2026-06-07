@@ -28,7 +28,12 @@ class AvatarMatcher {
         private const val HASH_WIDTH = HASH_SIZE + 1
         private const val HASH_HEIGHT = HASH_SIZE
         private const val HASH_HEX_LENGTH = 16
-        private const val SCREENSHOT_COOLDOWN_MS = 350L
+        // The platform enforces a minimum interval of ~1 second between
+        // AccessibilityService.takeScreenshot() calls. Requesting faster than this
+        // makes every extra call fail with ERROR_TAKE_SCREENSHOT_INTERVAL_TIME_SHORT,
+        // which is what previously broke avatar capture/matching in active chats
+        // (WhatsApp fires frequent content-change events). Stay at/above that limit.
+        private const val SCREENSHOT_COOLDOWN_MS = 1000L
         private const val HAMMING_THRESHOLD = 10
 
         private val AVATAR_VIEW_IDS = listOf(
