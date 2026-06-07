@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.content.SharedPreferences
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
@@ -25,6 +26,14 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         /** Cooldown to prevent rapid repeated back actions causing a loop. */
         private const val BACK_ACTION_COOLDOWN_MS = 800L
+
+        /**
+         * How long (after the user arms avatar enrollment and opens the chat) we keep
+         * trying to capture the avatar before giving up. While enrolling, blocking is
+         * suppressed for that contact so the screenshot can be taken; bounding the window
+         * guarantees we don't leave the contact permanently unblocked if capture fails.
+         */
+        private const val ENROLLMENT_WINDOW_MS = 20_000L
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
@@ -32,6 +41,11 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var cachedHasAnyAvatarHashes: Boolean = false
     private var lastBackActionTime: Long = 0L
     private val avatarMatcher = AvatarMatcher()
+
+    // In-memory enrollment window tracking (not persisted): which contact we are
+    // currently trying to enroll and when that attempt window started.
+    private var enrollmentContact: String? = null
+    private var enrollmentStartElapsed: Long = 0L
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -64,39 +78,67 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         val root = rootInActiveWindow ?: return
         try {
-            val fallbackByName = findBlockedContactInChat(root)
-            val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
-            val shouldAttemptAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                (pendingEnrollment != null || cachedHasAnyAvatarHashes)
+            val matchedByName = findBlockedContactInChat(root)
+            val canCaptureAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
 
-            if (!shouldAttemptAvatar) {
-                maybeBlockContact(fallbackByName, "name")
+            // --- Enrollment mode -------------------------------------------------
+            // While the user is enrolling a contact's avatar, suppress blocking for
+            // THAT contact so the screenshot can be captured, but keep blocking any
+            // other blocked contact by name. The window is time-bounded so a failed
+            // capture can never leave the contact permanently unblocked.
+            val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
+            if (pendingEnrollment != null && canCaptureAvatar) {
+                if (!pendingEnrollment.equals(enrollmentContact, ignoreCase = true)) {
+                    enrollmentContact = pendingEnrollment
+                    enrollmentStartElapsed = SystemClock.elapsedRealtime()
+                }
+
+                val withinWindow =
+                    SystemClock.elapsedRealtime() - enrollmentStartElapsed <= ENROLLMENT_WINDOW_MS
+                if (withinWindow) {
+                    avatarMatcher.captureAvatarHash(this, root) { observedHash ->
+                        runOnMainThread {
+                            if (!observedHash.isNullOrBlank()) {
+                                enrollPendingContactAvatarHash(pendingEnrollment, observedHash)
+                            }
+                        }
+                    }
+                    // Still block other blocked contacts while enrolling this one.
+                    if (matchedByName != null && !matchedByName.equals(pendingEnrollment, ignoreCase = true)) {
+                        maybeBlockContact(matchedByName, "name")
+                    }
+                    return
+                }
+
+                // Window elapsed without a successful capture: give up enrolling so the
+                // contact resumes normal blocking instead of staying suppressed forever.
+                Log.d(TAG, "Avatar enrollment window expired for $pendingEnrollment — giving up")
+                BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
+                enrollmentContact = null
+            }
+
+            // --- Normal blocking -------------------------------------------------
+            // Name matching is the reliable, synchronous primary mechanism.
+            if (matchedByName != null) {
+                maybeBlockContact(matchedByName, "name")
                 return
             }
 
-            val started = avatarMatcher.captureAvatarHash(this, root) { observedHash ->
-                runOnMainThread {
-                    if (!observedHash.isNullOrBlank()) {
-                        enrollPendingContactAvatarHash(pendingEnrollment, observedHash)
-                    }
-
-                    val avatarMatch = observedHash?.let {
-                        avatarMatcher.findBestMatch(it, cachedAvatarHashesByContact)
-                    }
-                    if (avatarMatch != null) {
+            // Best-effort secondary path: avatar matching for chats that didn't match
+            // by name (API 30+ only, and only when we actually have stored hashes).
+            if (canCaptureAvatar && cachedHasAnyAvatarHashes) {
+                avatarMatcher.captureAvatarHash(this, root) { observedHash ->
+                    runOnMainThread {
+                        val avatarMatch = observedHash?.let {
+                            avatarMatcher.findBestMatch(it, cachedAvatarHashesByContact)
+                        } ?: return@runOnMainThread
                         Log.d(
                             TAG,
                             "Avatar match: ${avatarMatch.contact} (distance=${avatarMatch.distance}, hash=${avatarMatch.observedHash})"
                         )
+                        maybeBlockContact(avatarMatch.contact, "avatar")
                     }
-                    val contactToBlock = avatarMatch?.contact ?: fallbackByName
-                    val reason = if (avatarMatch != null) "avatar" else "name"
-                    maybeBlockContact(contactToBlock, reason)
                 }
-            }
-
-            if (!started) {
-                maybeBlockContact(fallbackByName, "name")
             }
         } finally {
             root.recycle()
@@ -105,6 +147,7 @@ class BlockerAccessibilityService : AccessibilityService() {
 
     private fun enrollPendingContactAvatarHash(pendingContact: String?, hash: String) {
         val contact = pendingContact ?: return
+        enrollmentContact = null
         val blockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
         if (blockedContacts.none { it.equals(contact, ignoreCase = true) }) {
             BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
