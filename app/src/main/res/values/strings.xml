@@ -22,7 +22,8 @@
     <string name="block_mode_schedule">Schedule / permanent</string>
     <string name="block_mode_quota">Minutes per hour</string>
     <string name="quota_minutes_label">Allowed: %1$d min per hour</string>
-    <string name="quota_used_label">Used this hour: %1$d min</string>
+    <string name="quota_used_label">Used this hour: %1$d min %2$02d s</string>
+    <string name="daily_used_label">Used today: %1$d min %2$02d s</string>
     <string name="schedule_title">⏰ Schedule</string>
     <string name="btn_add_slot">+ Add time slot</string>
     <string name="delete_slot">Delete time slot</string>

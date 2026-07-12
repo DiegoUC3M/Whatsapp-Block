@@ -137,6 +137,8 @@ object BlockedContactsRepository {
     private const val KEY_PREFIX_QUOTA_MINUTES = "contact_quota_minutes_"
     private const val KEY_PREFIX_QUOTA_USED_MS = "contact_quota_used_ms_"
     private const val KEY_PREFIX_QUOTA_HOUR_STAMP = "contact_quota_hour_stamp_"
+    private const val KEY_PREFIX_DAILY_USED_MS = "contact_daily_used_ms_"
+    private const val KEY_PREFIX_DAILY_DAY_STAMP = "contact_daily_day_stamp_"
 
     private const val BLOCK_MODE_SCHEDULE = "schedule"
     private const val BLOCK_MODE_QUOTA = "quota"
@@ -184,6 +186,8 @@ object BlockedContactsRepository {
             .remove(KEY_PREFIX_QUOTA_MINUTES + name)
             .remove(KEY_PREFIX_QUOTA_USED_MS + name)
             .remove(KEY_PREFIX_QUOTA_HOUR_STAMP + name)
+            .remove(KEY_PREFIX_DAILY_USED_MS + name)
+            .remove(KEY_PREFIX_DAILY_DAY_STAMP + name)
         if (pendingEnrollment?.equals(name, ignoreCase = true) == true) {
             editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
         }
@@ -283,14 +287,32 @@ object BlockedContactsRepository {
         return p.getLong(KEY_PREFIX_QUOTA_USED_MS + contact, 0L).coerceAtLeast(0L)
     }
 
-    /** Adds chat time to the current hour's usage counter, resetting it first if the hour changed. */
+    /**
+     * Adds chat time to the current hour's usage counter (resetting it first if the hour
+     * changed) and to the current day's total usage counter (resetting it first if the
+     * day changed).
+     */
     fun addContactQuotaUsage(context: Context, contact: String, deltaMs: Long) {
         if (deltaMs <= 0) return
         val used = getContactQuotaUsedMs(context, contact)
+        val dailyUsed = getContactDailyUsedMs(context, contact)
         prefs(context).edit()
             .putLong(KEY_PREFIX_QUOTA_USED_MS + contact, used + deltaMs)
             .putLong(KEY_PREFIX_QUOTA_HOUR_STAMP + contact, currentHourStamp())
+            .putLong(KEY_PREFIX_DAILY_USED_MS + contact, dailyUsed + deltaMs)
+            .putLong(KEY_PREFIX_DAILY_DAY_STAMP + contact, currentDayStamp())
             .apply()
+    }
+
+    /**
+     * Total milliseconds of chat time used today for this contact.
+     * The counter automatically resets to 0 when the local calendar day changes.
+     */
+    fun getContactDailyUsedMs(context: Context, contact: String): Long {
+        val p = prefs(context)
+        val storedStamp = p.getLong(KEY_PREFIX_DAILY_DAY_STAMP + contact, -1L)
+        if (storedStamp != currentDayStamp()) return 0L
+        return p.getLong(KEY_PREFIX_DAILY_USED_MS + contact, 0L).coerceAtLeast(0L)
     }
 
     /** True if the contact's allowed minutes for the current hour have been used up. */
@@ -305,6 +327,13 @@ object BlockedContactsRepository {
         return cal.get(java.util.Calendar.YEAR) * 100_000L +
             cal.get(java.util.Calendar.DAY_OF_YEAR) * 100L +
             cal.get(java.util.Calendar.HOUR_OF_DAY)
+    }
+
+    /** Identifies the current local calendar day (changes exactly at midnight). */
+    private fun currentDayStamp(): Long {
+        val cal = java.util.Calendar.getInstance()
+        return cal.get(java.util.Calendar.YEAR) * 1_000L +
+            cal.get(java.util.Calendar.DAY_OF_YEAR)
     }
 
     // --- Per-Contact Schedule ---

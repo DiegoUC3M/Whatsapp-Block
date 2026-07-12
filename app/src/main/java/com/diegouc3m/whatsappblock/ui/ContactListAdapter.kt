@@ -19,6 +19,11 @@ class ContactListAdapter(
     private val onDelete: (String) -> Unit
 ) : ListAdapter<ContactListAdapter.ContactItem, ContactListAdapter.ViewHolder>(ContactDiffCallback()) {
 
+    private companion object {
+        /** How often the expanded usage counters refresh from stored usage. */
+        const val USAGE_TICK_MS = 1_000L
+    }
+
     data class ContactItem(
         val name: String,
         val avatarHashes: List<String>
@@ -41,10 +46,16 @@ class ContactListAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewRecycled(holder: ViewHolder) {
+        holder.stopUsageTicker()
+        super.onViewRecycled(holder)
+    }
+
     inner class ViewHolder(private val binding: ItemContactBinding) :
         RecyclerView.ViewHolder(binding.root) {
 
         private var groupAdapter: ScheduleGroupAdapter? = null
+        private var usageTicker: Runnable? = null
 
         fun bind(item: ContactItem) {
             val context = binding.root.context
@@ -74,7 +85,10 @@ class ContactListAdapter(
                 }
             }
 
-            if (!isExpanded) return
+            if (!isExpanded) {
+                stopUsageTicker()
+                return
+            }
 
             // Blocking on/off toggle
             val blockingEnabled = BlockedContactsRepository.isContactBlockingEnabled(context, name)
@@ -101,8 +115,8 @@ class ContactListAdapter(
             binding.seekQuotaMinutes.setOnSeekBarChangeListener(null)
             binding.seekQuotaMinutes.progress = quotaMinutes
             binding.tvQuotaMinutes.text = context.getString(R.string.quota_minutes_label, quotaMinutes)
-            val usedMinutes = (BlockedContactsRepository.getContactQuotaUsedMs(context, name) / 60_000L).toInt()
-            binding.tvQuotaUsed.text = context.getString(R.string.quota_used_label, usedMinutes)
+            updateUsageCounters(name)
+            startUsageTicker(name)
             binding.seekQuotaMinutes.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
                 override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                     binding.tvQuotaMinutes.text = context.getString(R.string.quota_minutes_label, progress)
@@ -181,6 +195,41 @@ class ContactListAdapter(
         private fun applyModeVisibility(mode: BlockMode) {
             binding.layoutModeSchedule.visibility = if (mode == BlockMode.SCHEDULE) View.VISIBLE else View.GONE
             binding.layoutContactQuota.visibility = if (mode == BlockMode.QUOTA) View.VISIBLE else View.GONE
+        }
+
+        /** Refreshes the "used this hour" and "used today" counters from stored usage. */
+        private fun updateUsageCounters(contact: String) {
+            val context = binding.root.context
+            val usedMs = BlockedContactsRepository.getContactQuotaUsedMs(context, contact)
+            binding.tvQuotaUsed.text = context.getString(
+                R.string.quota_used_label,
+                (usedMs / 60_000L).toInt(),
+                ((usedMs / 1_000L) % 60L).toInt()
+            )
+            val dailyMs = BlockedContactsRepository.getContactDailyUsedMs(context, contact)
+            binding.tvDailyUsed.text = context.getString(
+                R.string.daily_used_label,
+                (dailyMs / 60_000L).toInt(),
+                ((dailyMs / 1_000L) % 60L).toInt()
+            )
+        }
+
+        /** Starts a once-per-second refresh of the usage counters while the item is expanded. */
+        private fun startUsageTicker(contact: String) {
+            stopUsageTicker()
+            val runnable = object : Runnable {
+                override fun run() {
+                    updateUsageCounters(contact)
+                    binding.root.postDelayed(this, USAGE_TICK_MS)
+                }
+            }
+            usageTicker = runnable
+            binding.root.postDelayed(runnable, USAGE_TICK_MS)
+        }
+
+        fun stopUsageTicker() {
+            usageTicker?.let { binding.root.removeCallbacks(it) }
+            usageTicker = null
         }
 
         private fun refreshGroups(contact: String) {
