@@ -27,7 +27,7 @@ class BlockerAccessibilityService : AccessibilityService() {
         private const val BACK_ACTION_COOLDOWN_MS = 800L
 
         /** How often the quota session ticker accumulates usage while a quota chat is open. */
-        private const val QUOTA_TICK_MS = 5_000L
+        private const val QUOTA_TICK_MS = 1_000L
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
