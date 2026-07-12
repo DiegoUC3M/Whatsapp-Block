@@ -4,12 +4,14 @@ import android.app.TimePickerDialog
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.SeekBar
 import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import com.diegouc3m.whatsappblock.R
 import com.diegouc3m.whatsappblock.BlockedContactsRepository
+import com.diegouc3m.whatsappblock.BlockMode
 import com.diegouc3m.whatsappblock.TimeSlot
 import com.diegouc3m.whatsappblock.databinding.ItemContactBinding
 
@@ -74,6 +76,46 @@ class ContactListAdapter(
 
             if (!isExpanded) return
 
+            // Blocking on/off toggle
+            val blockingEnabled = BlockedContactsRepository.isContactBlockingEnabled(context, name)
+            binding.switchContactBlockingEnabled.setOnCheckedChangeListener(null)
+            binding.switchContactBlockingEnabled.isChecked = blockingEnabled
+            binding.switchContactBlockingEnabled.setOnCheckedChangeListener { _, isChecked ->
+                BlockedContactsRepository.setContactBlockingEnabled(context, name, isChecked)
+            }
+
+            // Block mode selection
+            val blockMode = BlockedContactsRepository.getContactBlockMode(context, name)
+            binding.rgBlockMode.setOnCheckedChangeListener(null)
+            binding.rbModeSchedule.isChecked = blockMode == BlockMode.SCHEDULE
+            binding.rbModeQuota.isChecked = blockMode == BlockMode.QUOTA
+            applyModeVisibility(blockMode)
+            binding.rgBlockMode.setOnCheckedChangeListener { _, checkedId ->
+                val mode = if (checkedId == R.id.rbModeQuota) BlockMode.QUOTA else BlockMode.SCHEDULE
+                BlockedContactsRepository.setContactBlockMode(context, name, mode)
+                applyModeVisibility(mode)
+            }
+
+            // Hourly quota controls
+            val quotaMinutes = BlockedContactsRepository.getContactQuotaMinutes(context, name)
+            binding.seekQuotaMinutes.setOnSeekBarChangeListener(null)
+            binding.seekQuotaMinutes.max = BlockedContactsRepository.QUOTA_MAX_MINUTES
+            binding.seekQuotaMinutes.progress = quotaMinutes
+            binding.tvQuotaMinutes.text = context.getString(R.string.quota_minutes_label, quotaMinutes)
+            val usedMinutes = (BlockedContactsRepository.getContactQuotaUsedMs(context, name) / 60_000L).toInt()
+            binding.tvQuotaUsed.text = context.getString(R.string.quota_used_label, usedMinutes)
+            binding.seekQuotaMinutes.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                    binding.tvQuotaMinutes.text = context.getString(R.string.quota_minutes_label, progress)
+                    if (fromUser) {
+                        BlockedContactsRepository.setContactQuotaMinutes(context, name, progress)
+                    }
+                }
+
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+
             // Schedule switch
             val scheduleEnabled = BlockedContactsRepository.isContactScheduleEnabled(context, name)
             binding.switchContactSchedule.setOnCheckedChangeListener(null)
@@ -135,6 +177,11 @@ class ContactListAdapter(
                 BlockedContactsRepository.addContactScheduleGroup(context, name)
                 refreshGroups(name)
             }
+        }
+
+        private fun applyModeVisibility(mode: BlockMode) {
+            binding.layoutModeSchedule.visibility = if (mode == BlockMode.SCHEDULE) View.VISIBLE else View.GONE
+            binding.layoutContactQuota.visibility = if (mode == BlockMode.QUOTA) View.VISIBLE else View.GONE
         }
 
         private fun refreshGroups(contact: String) {

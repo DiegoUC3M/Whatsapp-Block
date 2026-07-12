@@ -18,6 +18,11 @@
     <string name="avatar_hashes_label">Avatar hash(es): %1$s</string>
     <string name="delete_contact">Delete contact</string>
     <string name="toggle_schedule">Toggle schedule</string>
+    <string name="blocking_enabled_title">🚫 Blocking enabled</string>
+    <string name="block_mode_schedule">Schedule / permanent</string>
+    <string name="block_mode_quota">Minutes per hour</string>
+    <string name="quota_minutes_label">Allowed: %1$d min per hour</string>
+    <string name="quota_used_label">Used this hour: %1$d min</string>
     <string name="schedule_title">⏰ Schedule</string>
     <string name="btn_add_slot">+ Add time slot</string>
     <string name="delete_slot">Delete time slot</string>
