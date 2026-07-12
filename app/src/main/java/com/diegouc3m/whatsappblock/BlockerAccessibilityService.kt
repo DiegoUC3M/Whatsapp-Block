@@ -136,14 +136,13 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun maybeBlockContact(contact: String?, reason: String) {
-        if (contact == null || contact != quotaSessionContact) {
+        val blockingEnabled = contact != null &&
+            BlockedContactsRepository.isContactBlockingEnabled(applicationContext, contact)
+        if (contact == null || contact != quotaSessionContact || !blockingEnabled) {
             endQuotaSession()
         }
-        val blockedContact = contact ?: return
-        if (!BlockedContactsRepository.isContactBlockingEnabled(applicationContext, blockedContact)) {
-            endQuotaSession()
-            return
-        }
+        if (contact == null || !blockingEnabled) return
+        val blockedContact = contact
 
         when (BlockedContactsRepository.getContactBlockMode(applicationContext, blockedContact)) {
             BlockMode.SCHEDULE -> {
@@ -190,14 +189,28 @@ class BlockerAccessibilityService : AccessibilityService() {
         flushQuotaUsage(contact)
     }
 
-    /** Adds the time elapsed since the last tick to the contact's hourly usage counter. */
+    /**
+     * Adds the time elapsed since the last tick to the contact's hourly usage counter.
+     * If the clock hour changed since the last tick, only the portion of the elapsed
+     * time that falls within the current hour is counted, so the reset at the hour
+     * change (e.g. 19:59 → 20:00) stays accurate.
+     */
     private fun flushQuotaUsage(contact: String) {
         val now = System.currentTimeMillis()
-        val delta = now - quotaSessionLastTick
+        val last = quotaSessionLastTick
         quotaSessionLastTick = now
+        val delta = now - maxOf(last, startOfCurrentHourMillis())
         if (delta > 0) {
             BlockedContactsRepository.addContactQuotaUsage(applicationContext, contact, delta)
         }
+    }
+
+    private fun startOfCurrentHourMillis(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
     }
 
     /**

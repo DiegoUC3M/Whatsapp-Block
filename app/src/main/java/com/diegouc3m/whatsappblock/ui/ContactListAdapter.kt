@@ -99,7 +99,6 @@ class ContactListAdapter(
             // Hourly quota controls
             val quotaMinutes = BlockedContactsRepository.getContactQuotaMinutes(context, name)
             binding.seekQuotaMinutes.setOnSeekBarChangeListener(null)
-            binding.seekQuotaMinutes.max = BlockedContactsRepository.QUOTA_MAX_MINUTES
             binding.seekQuotaMinutes.progress = quotaMinutes
             binding.tvQuotaMinutes.text = context.getString(R.string.quota_minutes_label, quotaMinutes)
             val usedMinutes = (BlockedContactsRepository.getContactQuotaUsedMs(context, name) / 60_000L).toInt()
