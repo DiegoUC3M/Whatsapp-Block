@@ -108,6 +108,17 @@ data class ScheduleGroup(
     }
 }
 
+/**
+ * How blocking applies to a contact.
+ *  - [SCHEDULE]: the existing behaviour — blocked permanently or within configured schedule groups.
+ *  - [QUOTA]: the contact can be chatted with for a limited number of minutes each clock hour;
+ *    once the quota is spent, blocking applies until the next hour starts.
+ */
+enum class BlockMode {
+    SCHEDULE,
+    QUOTA
+}
+
 object BlockedContactsRepository {
 
     private const val PREFS_NAME = "whatsapp_blocker_prefs"
@@ -121,6 +132,17 @@ object BlockedContactsRepository {
     private const val KEY_PREFIX_SCHEDULE_SLOTS = "contact_schedule_slots_"
     private const val KEY_PREFIX_SCHEDULE_GROUPS = "contact_schedule_groups_"
     private const val KEY_PREFIX_AVATAR_HASHES = "contact_avatar_hashes_"
+    private const val KEY_PREFIX_BLOCKING_ENABLED = "contact_blocking_enabled_"
+    private const val KEY_PREFIX_BLOCK_MODE = "contact_block_mode_"
+    private const val KEY_PREFIX_QUOTA_MINUTES = "contact_quota_minutes_"
+    private const val KEY_PREFIX_QUOTA_USED_MS = "contact_quota_used_ms_"
+    private const val KEY_PREFIX_QUOTA_HOUR_STAMP = "contact_quota_hour_stamp_"
+
+    private const val BLOCK_MODE_SCHEDULE = "schedule"
+    private const val BLOCK_MODE_QUOTA = "quota"
+
+    /** Maximum number of allowed minutes per hour for the quota block mode. */
+    const val QUOTA_MAX_MINUTES = 50
 
     private const val GROUP_SEPARATOR = ";"
 
@@ -157,6 +179,11 @@ object BlockedContactsRepository {
             .remove(KEY_PREFIX_SCHEDULE_SLOTS + name)
             .remove(KEY_PREFIX_SCHEDULE_GROUPS + name)
             .remove(KEY_PREFIX_AVATAR_HASHES + name)
+            .remove(KEY_PREFIX_BLOCKING_ENABLED + name)
+            .remove(KEY_PREFIX_BLOCK_MODE + name)
+            .remove(KEY_PREFIX_QUOTA_MINUTES + name)
+            .remove(KEY_PREFIX_QUOTA_USED_MS + name)
+            .remove(KEY_PREFIX_QUOTA_HOUR_STAMP + name)
         if (pendingEnrollment?.equals(name, ignoreCase = true) == true) {
             editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
         }
@@ -203,6 +230,81 @@ object BlockedContactsRepository {
         val trimmed = hash.trim().lowercase()
         if (trimmed.length != AVATAR_HASH_HEX_LENGTH) return null
         return if (trimmed.all { it in '0'..'9' || it in 'a'..'f' }) trimmed else null
+    }
+
+    // --- Per-Contact Blocking Toggle ---
+
+    /** Returns whether blocking is enabled at all for this contact (default true). */
+    fun isContactBlockingEnabled(context: Context, contact: String): Boolean {
+        return prefs(context).getBoolean(KEY_PREFIX_BLOCKING_ENABLED + contact, true)
+    }
+
+    fun setContactBlockingEnabled(context: Context, contact: String, enabled: Boolean) {
+        prefs(context).edit().putBoolean(KEY_PREFIX_BLOCKING_ENABLED + contact, enabled).apply()
+    }
+
+    // --- Per-Contact Block Mode ---
+
+    fun getContactBlockMode(context: Context, contact: String): BlockMode {
+        return when (prefs(context).getString(KEY_PREFIX_BLOCK_MODE + contact, BLOCK_MODE_SCHEDULE)) {
+            BLOCK_MODE_QUOTA -> BlockMode.QUOTA
+            else -> BlockMode.SCHEDULE
+        }
+    }
+
+    fun setContactBlockMode(context: Context, contact: String, mode: BlockMode) {
+        val value = if (mode == BlockMode.QUOTA) BLOCK_MODE_QUOTA else BLOCK_MODE_SCHEDULE
+        prefs(context).edit().putString(KEY_PREFIX_BLOCK_MODE + contact, value).apply()
+    }
+
+    // --- Per-Contact Hourly Quota ---
+
+    /** Allowed chat minutes per clock hour for the quota mode (0..QUOTA_MAX_MINUTES). */
+    fun getContactQuotaMinutes(context: Context, contact: String): Int {
+        return prefs(context).getInt(KEY_PREFIX_QUOTA_MINUTES + contact, 0)
+            .coerceIn(0, QUOTA_MAX_MINUTES)
+    }
+
+    fun setContactQuotaMinutes(context: Context, contact: String, minutes: Int) {
+        prefs(context).edit()
+            .putInt(KEY_PREFIX_QUOTA_MINUTES + contact, minutes.coerceIn(0, QUOTA_MAX_MINUTES))
+            .apply()
+    }
+
+    /**
+     * Milliseconds of chat time already used within the current clock hour.
+     * The counter automatically resets to 0 when the clock hour changes
+     * (e.g. going from 19:59 to 20:00).
+     */
+    fun getContactQuotaUsedMs(context: Context, contact: String): Long {
+        val p = prefs(context)
+        val storedStamp = p.getLong(KEY_PREFIX_QUOTA_HOUR_STAMP + contact, -1L)
+        if (storedStamp != currentHourStamp()) return 0L
+        return p.getLong(KEY_PREFIX_QUOTA_USED_MS + contact, 0L).coerceAtLeast(0L)
+    }
+
+    /** Adds chat time to the current hour's usage counter, resetting it first if the hour changed. */
+    fun addContactQuotaUsage(context: Context, contact: String, deltaMs: Long) {
+        if (deltaMs <= 0) return
+        val used = getContactQuotaUsedMs(context, contact)
+        prefs(context).edit()
+            .putLong(KEY_PREFIX_QUOTA_USED_MS + contact, used + deltaMs)
+            .putLong(KEY_PREFIX_QUOTA_HOUR_STAMP + contact, currentHourStamp())
+            .apply()
+    }
+
+    /** True if the contact's allowed minutes for the current hour have been used up. */
+    fun isContactQuotaExceeded(context: Context, contact: String): Boolean {
+        val quotaMs = getContactQuotaMinutes(context, contact) * 60_000L
+        return getContactQuotaUsedMs(context, contact) >= quotaMs
+    }
+
+    /** Identifies the current local clock hour (changes exactly when minutes roll over to :00). */
+    private fun currentHourStamp(): Long {
+        val cal = java.util.Calendar.getInstance()
+        return cal.get(java.util.Calendar.YEAR) * 100_000L +
+            cal.get(java.util.Calendar.DAY_OF_YEAR) * 100L +
+            cal.get(java.util.Calendar.HOUR_OF_DAY)
     }
 
     // --- Per-Contact Schedule ---

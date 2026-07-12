@@ -43,7 +43,7 @@
         android:layout_marginTop="4dp"
         android:textSize="12sp" />
 
-    <!-- Per-contact schedule section (expandable) -->
+    <!-- Per-contact settings section (expandable) -->
     <LinearLayout
         android:id="@+id/layoutContactSchedule"
         android:layout_width="match_parent"
@@ -52,6 +52,84 @@
         android:paddingStart="16dp"
         android:paddingTop="8dp"
         android:visibility="gone">
+
+        <!-- Blocking on/off toggle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/blocking_enabled_title"
+                android:textSize="13sp" />
+
+            <com.google.android.material.switchmaterial.SwitchMaterial
+                android:id="@+id/switchContactBlockingEnabled"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Block mode selection -->
+        <RadioGroup
+            android:id="@+id/rgBlockMode"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <RadioButton
+                android:id="@+id/rbModeSchedule"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/block_mode_schedule"
+                android:textSize="12sp" />
+
+            <RadioButton
+                android:id="@+id/rbModeQuota"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/block_mode_quota"
+                android:textSize="12sp" />
+        </RadioGroup>
+
+        <!-- Hourly quota mode section -->
+        <LinearLayout
+            android:id="@+id/layoutContactQuota"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvQuotaMinutes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="13sp" />
+
+            <SeekBar
+                android:id="@+id/seekQuotaMinutes"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:max="50" />
+
+            <TextView
+                android:id="@+id/tvQuotaUsed"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <!-- Schedule mode section -->
+        <LinearLayout
+            android:id="@+id/layoutModeSchedule"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -92,6 +170,7 @@
                 android:text="@string/btn_add_group"
                 android:textSize="12sp"
                 style="?attr/materialButtonOutlinedStyle" />
+        </LinearLayout>
         </LinearLayout>
     </LinearLayout>
 

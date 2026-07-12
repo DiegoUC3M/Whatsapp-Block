@@ -25,6 +25,9 @@ class BlockerAccessibilityService : AccessibilityService() {
 
         /** Cooldown to prevent rapid repeated back actions causing a loop. */
         private const val BACK_ACTION_COOLDOWN_MS = 800L
+
+        /** How often the quota session ticker accumulates usage while a quota chat is open. */
+        private const val QUOTA_TICK_MS = 5_000L
     }
 
     private var cachedBlockedContacts: Set<String> = emptySet()
@@ -32,6 +35,18 @@ class BlockerAccessibilityService : AccessibilityService() {
     private var cachedHasAnyAvatarHashes: Boolean = false
     private var lastBackActionTime: Long = 0L
     private val avatarMatcher = AvatarMatcher()
+
+    private var quotaSessionContact: String? = null
+    private var quotaSessionLastTick: Long = 0L
+    private val quotaHandler = Handler(Looper.getMainLooper())
+    private val quotaTicker = object : Runnable {
+        override fun run() {
+            tickQuotaSession()
+            if (quotaSessionContact != null) {
+                quotaHandler.postDelayed(this, QUOTA_TICK_MS)
+            }
+        }
+    }
 
     private val prefsListener =
         SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
@@ -49,6 +64,7 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     override fun onDestroy() {
+        endQuotaSession()
         BlockedContactsRepository.unregisterListener(applicationContext, prefsListener)
         super.onDestroy()
     }
@@ -120,14 +136,112 @@ class BlockerAccessibilityService : AccessibilityService() {
     }
 
     private fun maybeBlockContact(contact: String?, reason: String) {
-        val blockedContact = contact ?: return
-        if (!BlockedContactsRepository.isWithinScheduleForContact(applicationContext, blockedContact)) return
+        val blockingEnabled = contact != null &&
+            BlockedContactsRepository.isContactBlockingEnabled(applicationContext, contact)
+        if (contact == null || contact != quotaSessionContact || !blockingEnabled) {
+            endQuotaSession()
+        }
+        if (contact == null || !blockingEnabled) return
+        val blockedContact = contact
 
+        when (BlockedContactsRepository.getContactBlockMode(applicationContext, blockedContact)) {
+            BlockMode.SCHEDULE -> {
+                endQuotaSession()
+                if (!BlockedContactsRepository.isWithinScheduleForContact(applicationContext, blockedContact)) return
+                performBlockBack(blockedContact, reason)
+            }
+            BlockMode.QUOTA -> {
+                startQuotaSession(blockedContact)
+                flushQuotaUsage(blockedContact)
+                if (BlockedContactsRepository.isContactQuotaExceeded(applicationContext, blockedContact)) {
+                    endQuotaSession()
+                    performBlockBack(blockedContact, "$reason/quota")
+                }
+            }
+        }
+    }
+
+    private fun performBlockBack(blockedContact: String, reason: String) {
         val now = System.currentTimeMillis()
         if (now - lastBackActionTime > BACK_ACTION_COOLDOWN_MS) {
             Log.d(TAG, "Blocked contact chat detected via $reason: $blockedContact — navigating back")
             lastBackActionTime = now
             performGlobalAction(GLOBAL_ACTION_BACK)
+        }
+    }
+
+    // --- Quota session tracking ---
+
+    /** Starts counting chat time for a quota-mode contact whose chat is currently open. */
+    private fun startQuotaSession(contact: String) {
+        if (quotaSessionContact == contact) return
+        endQuotaSession()
+        quotaSessionContact = contact
+        quotaSessionLastTick = System.currentTimeMillis()
+        quotaHandler.postDelayed(quotaTicker, QUOTA_TICK_MS)
+    }
+
+    /** Persists any pending chat time and stops the session ticker. */
+    private fun endQuotaSession() {
+        val contact = quotaSessionContact ?: return
+        quotaSessionContact = null
+        quotaHandler.removeCallbacks(quotaTicker)
+        flushQuotaUsage(contact)
+    }
+
+    /**
+     * Adds the time elapsed since the last tick to the contact's hourly usage counter.
+     * If the clock hour changed since the last tick, only the portion of the elapsed
+     * time that falls within the current hour is counted, so the reset at the hour
+     * change (e.g. 19:59 → 20:00) stays accurate.
+     */
+    private fun flushQuotaUsage(contact: String) {
+        val now = System.currentTimeMillis()
+        val last = quotaSessionLastTick
+        quotaSessionLastTick = now
+        val delta = now - maxOf(last, startOfCurrentHourMillis())
+        if (delta > 0) {
+            BlockedContactsRepository.addContactQuotaUsage(applicationContext, contact, delta)
+        }
+    }
+
+    private fun startOfCurrentHourMillis(): Long {
+        val cal = java.util.Calendar.getInstance()
+        cal.set(java.util.Calendar.MINUTE, 0)
+        cal.set(java.util.Calendar.SECOND, 0)
+        cal.set(java.util.Calendar.MILLISECOND, 0)
+        return cal.timeInMillis
+    }
+
+    /**
+     * Periodic check while a quota chat is open: verifies the chat is still in the
+     * foreground, accumulates usage, and blocks once the hourly quota is spent.
+     */
+    private fun tickQuotaSession() {
+        val contact = quotaSessionContact ?: return
+
+        val root = rootInActiveWindow
+        val stillOpen = if (root == null) {
+            false
+        } else {
+            try {
+                val pkg = root.packageName?.toString()
+                pkg != null && pkg in WhatsAppPackages.ALL &&
+                    findBlockedContactInChat(root) == contact
+            } finally {
+                root.recycle()
+            }
+        }
+
+        if (!stillOpen) {
+            endQuotaSession()
+            return
+        }
+
+        flushQuotaUsage(contact)
+        if (BlockedContactsRepository.isContactQuotaExceeded(applicationContext, contact)) {
+            endQuotaSession()
+            performBlockBack(contact, "quota")
         }
     }
 
