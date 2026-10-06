@@ -1,6 +1,8 @@
 package com.diegouc3m.whatsappblock
 
 import android.content.Intent
+import android.content.SharedPreferences
+import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.view.ViewGroup
@@ -21,10 +23,12 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.android.controller.ActivityController
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.LooperMode
 import org.robolectric.shadows.ShadowDialog
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [28])
+@LooperMode(LooperMode.Mode.PAUSED)
 class MainActivityDisclosureTest {
     private var main: ActivityController<MainActivity>? = null
     private var privacy: ActivityController<PrivacyActivity>? = null
@@ -53,14 +57,28 @@ class MainActivityDisclosureTest {
 
         val dialog = ShadowDialog.getLatestDialog() as AlertDialog
         assertTrue(dialog.isShowing)
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+        val observedConsent = mutableListOf<Boolean>()
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            observedConsent += ConsentStore.hasConsent(activity)
+        }
+        ConsentStore.registerListener(activity, listener)
+        try {
+            dialog.getButton(AlertDialog.BUTTON_NEGATIVE).performClick()
+            // AppCompat dispatches dialog buttons through Handler messages, just as on Android.
+            shadowOf(Looper.getMainLooper()).idle()
 
-        assertFalse(ConsentStore.hasConsent(activity))
-        assertTrue(ConsentStore.isPaused(activity))
-        assertNull(shadowOf(activity).nextStartedActivity)
-        // Declining access does not lock the user out of local rule configuration.
-        assertTrue(activity.findViewById<Button>(R.id.btnAdd).isEnabled)
-        assertTrue(activity.findViewById<Button>(R.id.btnPrivacy).isEnabled)
+            assertFalse(dialog.isShowing)
+            assertTrue("The rejection callback must update stored preferences", observedConsent.isNotEmpty())
+            assertTrue(observedConsent.all { !it })
+            assertFalse(ConsentStore.hasConsent(activity))
+            assertTrue(ConsentStore.isPaused(activity))
+            assertNull(shadowOf(activity).nextStartedActivity)
+            // Declining access does not lock the user out of local rule configuration.
+            assertTrue(activity.findViewById<Button>(R.id.btnAdd).isEnabled)
+            assertTrue(activity.findViewById<Button>(R.id.btnPrivacy).isEnabled)
+        } finally {
+            ConsentStore.unregisterListener(activity, listener)
+        }
     }
 
     @Test
@@ -72,7 +90,9 @@ class MainActivityDisclosureTest {
 
         val dialog = ShadowDialog.getLatestDialog() as AlertDialog
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick()
+        shadowOf(Looper.getMainLooper()).idle()
 
+        assertFalse(dialog.isShowing)
         assertTrue(ConsentStore.hasConsent(activity))
         assertFalse(ConsentStore.isPaused(activity))
         assertEquals(

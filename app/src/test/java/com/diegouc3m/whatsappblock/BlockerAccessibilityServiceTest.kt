@@ -1,8 +1,10 @@
 package com.diegouc3m.whatsappblock
 
 import android.accessibilityservice.AccessibilityService
+import android.app.Application
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -39,6 +41,14 @@ class BlockerAccessibilityServiceTest {
 
     @Before fun clearLocalState() {
         context = ApplicationProvider.getApplicationContext()
+        val receiverPermission = "${context.packageName}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION"
+        val requestedPermissions = context.packageManager
+            .getPackageInfo(context.packageName, PackageManager.GET_PERMISSIONS)
+            .requestedPermissions.orEmpty()
+        assertTrue("AndroidX must request its private receiver permission", receiverPermission in requestedPermissions)
+        // Android grants the app's own signature permission when installing it.
+        // Robolectric's process permission fixture needs that grant explicitly on API 28.
+        shadowOf(context as Application).grantPermissions(receiverPermission)
         BlockedContactsRepository.clearAll(context)
         context.getSharedPreferences("privacy_consent", Context.MODE_PRIVATE).edit().clear().commit()
         BlockedContactsRepository.addContact(context, CONTACT)
