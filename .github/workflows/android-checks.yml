@@ -1,0 +1,83 @@
+name: Android checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/wrapper-validation@v4
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Test, lint and build test APK
+        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+      - name: Verify release refuses missing upload signing
+        run: |
+          if ./gradlew --no-daemon :app:verifyUploadSigning > "$RUNNER_TEMP/signing-guard.log" 2>&1; then
+            echo "Release signing guard unexpectedly accepted missing credentials."
+            exit 1
+          fi
+          grep -F "Release requires an upload key" "$RUNNER_TEMP/signing-guard.log"
+      - name: Generate disposable signing fixture
+        run: |
+          umask 077
+          keytool -genkeypair -keystore "$RUNNER_TEMP/ci-signing-fixture.jks" -storetype JKS \
+            -alias ci-fixture -keyalg RSA -keysize 2048 -validity 2 \
+            -storepass disposable-ci-fixture -keypass disposable-ci-fixture \
+            -dname "CN=Disposable CI fixture, O=Build verification, C=ES" -noprompt
+      - name: Validate release lint and signed packaging with disposable fixture
+        env:
+          PAUSA_CHATS_KEYSTORE_PATH: ${{ runner.temp }}/ci-signing-fixture.jks
+          PAUSA_CHATS_KEYSTORE_PASSWORD: disposable-ci-fixture
+          PAUSA_CHATS_KEY_ALIAS: ci-fixture
+          PAUSA_CHATS_KEY_PASSWORD: disposable-ci-fixture
+        run: ./gradlew --no-daemon lintRelease assembleRelease bundleRelease
+      - name: Verify signature and release manifest
+        run: |
+          jarsigner -J-Duser.language=en -J-Duser.country=US -verify app/build/outputs/bundle/release/app-release.aab > "$RUNNER_TEMP/bundle-signature.log" 2>&1
+          grep -Fx "jar verified." "$RUNNER_TEMP/bundle-signature.log"
+          "$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging app/build/outputs/apk/release/app-release.apk > "$RUNNER_TEMP/release-manifest.log"
+          grep -F "package: name='com.diegouc3m.whatsappblock'" "$RUNNER_TEMP/release-manifest.log"
+          grep -Fx "targetSdkVersion:'36'" "$RUNNER_TEMP/release-manifest.log"
+          if grep -q '^application-debuggable' "$RUNNER_TEMP/release-manifest.log"; then
+            echo "Release unexpectedly has android:debuggable enabled."
+            exit 1
+          fi
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-check-reports
+          path: |
+            app/build/reports/tests/
+            app/build/reports/lint-results-debug.*
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Upload debug APK for testing
+        uses: actions/upload-artifact@v4
+        with:
+          name: pausa-de-chats-debug-testing-only
+          path: app/build/outputs/apk/debug/*.apk
+          retention-days: 7
+      - name: Remove disposable signing fixture and release outputs
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/ci-signing-fixture.jks"
+          rm -f app/build/outputs/bundle/release/*.aab app/build/outputs/apk/release/*.apk

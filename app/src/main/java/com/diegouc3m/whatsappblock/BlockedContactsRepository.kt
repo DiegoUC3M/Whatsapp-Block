@@ -124,7 +124,6 @@ object BlockedContactsRepository {
     private const val PREFS_NAME = "whatsapp_blocker_prefs"
     private const val KEY_CONTACTS = "blocked_contacts"
     private const val MAX_CONTACT_NAME_LENGTH = 100
-    private const val AVATAR_HASH_HEX_LENGTH = 16
     private const val KEY_PENDING_AVATAR_ENROLLMENT_CONTACT = "pending_avatar_enrollment_contact"
 
     // Per-contact schedule key prefixes
@@ -164,6 +163,7 @@ object BlockedContactsRepository {
         val trimmed = name.trim()
         if (trimmed.isEmpty() || trimmed.length > MAX_CONTACT_NAME_LENGTH) return false
         val current = getBlockedContacts(context).toMutableSet()
+        if (current.any { it.equals(trimmed, ignoreCase = true) }) return false
         current.add(trimmed)
         prefs(context).edit().putStringSet(KEY_CONTACTS, current).apply()
         return true
@@ -172,7 +172,6 @@ object BlockedContactsRepository {
     fun removeContact(context: Context, name: String) {
         val current = getBlockedContacts(context).toMutableSet()
         current.remove(name)
-        val pendingEnrollment = getPendingAvatarEnrollmentContact(context)
         val editor = prefs(context).edit()
         // Also remove per-contact schedule data
         editor
@@ -188,52 +187,24 @@ object BlockedContactsRepository {
             .remove(KEY_PREFIX_QUOTA_HOUR_STAMP + name)
             .remove(KEY_PREFIX_DAILY_USED_MS + name)
             .remove(KEY_PREFIX_DAILY_DAY_STAMP + name)
-        if (pendingEnrollment?.equals(name, ignoreCase = true) == true) {
-            editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
-        }
         editor.apply()
     }
 
-    fun getContactAvatarHashes(context: Context, contact: String): Set<String> {
-        return prefs(context).getStringSet(KEY_PREFIX_AVATAR_HASHES + contact, emptySet()) ?: emptySet()
-    }
-
-    fun getBlockedContactsAvatarHashes(context: Context): Map<String, Set<String>> {
-        val contacts = getBlockedContacts(context)
-        if (contacts.isEmpty()) return emptyMap()
-        return contacts.associateWith { getContactAvatarHashes(context, it) }
-    }
-
-    fun addContactAvatarHash(context: Context, contact: String, hash: String): Boolean {
-        val normalizedHash = normalizeAvatarHash(hash) ?: return false
-        val contacts = getBlockedContacts(context)
-        val storedContact = contacts.firstOrNull { it.equals(contact, ignoreCase = true) } ?: return false
-        val current = getContactAvatarHashes(context, storedContact).toMutableSet()
-        current.add(normalizedHash)
-        prefs(context).edit().putStringSet(KEY_PREFIX_AVATAR_HASHES + storedContact, current).apply()
-        return true
-    }
-
-    fun getPendingAvatarEnrollmentContact(context: Context): String? {
-        val raw = prefs(context).getString(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT, null)
-        return raw?.trim()?.takeIf { it.isNotEmpty() }
-    }
-
-    fun setPendingAvatarEnrollmentContact(context: Context, contact: String?) {
-        val editor = prefs(context).edit()
-        val normalizedContact = contact?.trim()?.takeIf { it.isNotEmpty() }
-        if (normalizedContact == null) {
-            editor.remove(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT)
-        } else {
-            editor.putString(KEY_PENDING_AVATAR_ENROLLMENT_CONTACT, normalizedContact)
+    /** Erases data from the removed screenshot/avatar feature on upgrade. */
+    fun removeLegacyAvatarData(context: Context) {
+        val p = prefs(context)
+        val keys = p.all.keys.filter {
+            it == KEY_PENDING_AVATAR_ENROLLMENT_CONTACT || it.startsWith(KEY_PREFIX_AVATAR_HASHES)
         }
+        if (keys.isEmpty()) return
+        val editor = p.edit()
+        keys.forEach { editor.remove(it) }
         editor.apply()
     }
 
-    private fun normalizeAvatarHash(hash: String): String? {
-        val trimmed = hash.trim().lowercase()
-        if (trimmed.length != AVATAR_HASH_HEX_LENGTH) return null
-        return if (trimmed.all { it in '0'..'9' || it in 'a'..'f' }) trimmed else null
+    /** Deletes all configured names, rules and usage counters on this device. */
+    fun clearAll(context: Context) {
+        prefs(context).edit().clear().commit()
     }
 
     // --- Per-Contact Blocking Toggle ---
@@ -292,15 +263,27 @@ object BlockedContactsRepository {
      * changed) and to the current day's total usage counter (resetting it first if the
      * day changed).
      */
-    fun addContactQuotaUsage(context: Context, contact: String, deltaMs: Long) {
-        if (deltaMs <= 0) return
-        val used = getContactQuotaUsedMs(context, contact)
-        val dailyUsed = getContactDailyUsedMs(context, contact)
-        prefs(context).edit()
+    fun addContactQuotaUsage(
+        context: Context,
+        contact: String,
+        deltaMs: Long,
+        atMillis: Long = System.currentTimeMillis()
+    ) {
+        if (deltaMs <= 0 || contact !in getBlockedContacts(context)) return
+        val p = prefs(context)
+        val hour = currentHourStamp(atMillis)
+        val day = currentDayStamp(atMillis)
+        val used = if (p.getLong(KEY_PREFIX_QUOTA_HOUR_STAMP + contact, -1L) == hour) {
+            p.getLong(KEY_PREFIX_QUOTA_USED_MS + contact, 0L).coerceAtLeast(0L)
+        } else 0L
+        val dailyUsed = if (p.getLong(KEY_PREFIX_DAILY_DAY_STAMP + contact, -1L) == day) {
+            p.getLong(KEY_PREFIX_DAILY_USED_MS + contact, 0L).coerceAtLeast(0L)
+        } else 0L
+        p.edit()
             .putLong(KEY_PREFIX_QUOTA_USED_MS + contact, used + deltaMs)
-            .putLong(KEY_PREFIX_QUOTA_HOUR_STAMP + contact, currentHourStamp())
+            .putLong(KEY_PREFIX_QUOTA_HOUR_STAMP + contact, hour)
             .putLong(KEY_PREFIX_DAILY_USED_MS + contact, dailyUsed + deltaMs)
-            .putLong(KEY_PREFIX_DAILY_DAY_STAMP + contact, currentDayStamp())
+            .putLong(KEY_PREFIX_DAILY_DAY_STAMP + contact, day)
             .apply()
     }
 
@@ -322,16 +305,16 @@ object BlockedContactsRepository {
     }
 
     /** Identifies the current local clock hour (changes exactly when minutes roll over to :00). */
-    private fun currentHourStamp(): Long {
-        val cal = java.util.Calendar.getInstance()
+    private fun currentHourStamp(atMillis: Long = System.currentTimeMillis()): Long {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = atMillis }
         return cal.get(java.util.Calendar.YEAR) * 100_000L +
             cal.get(java.util.Calendar.DAY_OF_YEAR) * 100L +
             cal.get(java.util.Calendar.HOUR_OF_DAY)
     }
 
     /** Identifies the current local calendar day (changes exactly at midnight). */
-    private fun currentDayStamp(): Long {
-        val cal = java.util.Calendar.getInstance()
+    private fun currentDayStamp(atMillis: Long = System.currentTimeMillis()): Long {
+        val cal = java.util.Calendar.getInstance().apply { timeInMillis = atMillis }
         return cal.get(java.util.Calendar.YEAR) * 1_000L +
             cal.get(java.util.Calendar.DAY_OF_YEAR)
     }
@@ -397,7 +380,7 @@ object BlockedContactsRepository {
         enabled: Boolean
     ) {
         val current = getContactScheduleGroups(context, contact).toMutableList()
-        if (groupIndex !in current.indices) return
+        if (groupIndex !in current.indices || day !in 0 until ScheduleGroup.DAY_COUNT) return
 
         val updated = current.mapIndexed { index, group ->
             val days = group.days.toMutableSet()

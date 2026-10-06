@@ -7,6 +7,10 @@ app/build/
 .idea/
 *.iml
 local.properties
+*.keystore
+*.jks
+keystore.properties
+.signing/
 
 # OS
 .DS_Store

@@ -1,0 +1,51 @@
+name: Build signed Play bundle
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: temurin
+      - uses: gradle/actions/wrapper-validation@v4
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install Android SDK
+        run: sdkmanager "platforms;android-36" "build-tools;35.0.0"
+      - name: Check and decode upload key
+        env:
+          UPLOAD_KEYSTORE_BASE64: ${{ secrets.PAUSA_CHATS_KEYSTORE_BASE64 }}
+          UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.PAUSA_CHATS_KEYSTORE_PASSWORD }}
+          UPLOAD_KEY_ALIAS: ${{ secrets.PAUSA_CHATS_KEY_ALIAS }}
+          UPLOAD_KEY_PASSWORD: ${{ secrets.PAUSA_CHATS_KEY_PASSWORD }}
+        run: |
+          if [ -z "$UPLOAD_KEYSTORE_BASE64" ] || [ -z "$UPLOAD_KEYSTORE_PASSWORD" ] || [ -z "$UPLOAD_KEY_ALIAS" ] || [ -z "$UPLOAD_KEY_PASSWORD" ]; then
+            echo "Configure all PAUSA_CHATS signing secrets before building a Play bundle."
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$UPLOAD_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/pausa-chats-upload.jks"
+      - name: Validate and build signed Android App Bundle
+        env:
+          PAUSA_CHATS_KEYSTORE_PATH: ${{ runner.temp }}/pausa-chats-upload.jks
+          PAUSA_CHATS_KEYSTORE_PASSWORD: ${{ secrets.PAUSA_CHATS_KEYSTORE_PASSWORD }}
+          PAUSA_CHATS_KEY_ALIAS: ${{ secrets.PAUSA_CHATS_KEY_ALIAS }}
+          PAUSA_CHATS_KEY_PASSWORD: ${{ secrets.PAUSA_CHATS_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon testDebugUnitTest lintRelease bundleRelease
+      - name: Upload signed bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: pausa-de-chats-play-bundle
+          path: app/build/outputs/bundle/release/*.aab
+          if-no-files-found: error
+          retention-days: 7
+      - name: Remove temporary upload key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/pausa-chats-upload.jks"
