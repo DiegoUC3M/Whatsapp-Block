@@ -1,6 +1,8 @@
 package com.diegouc3m.whatsappblock
 
-import java.util.Calendar
+import java.time.Instant
+import java.time.ZoneId
+import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 
 internal data class UsageSlice(val atMillis: Long, val durationMs: Long)
@@ -31,17 +33,17 @@ internal class QuotaClock(elapsedMillis: Long, wallMillis: Long) {
         internal fun splitAtHours(startMillis: Long, durationMs: Long): List<UsageSlice> {
             if (durationMs <= 0) return emptyList()
             val result = mutableListOf<UsageSlice>()
+            val zone = ZoneId.systemDefault()
             var cursor = startMillis
             val end = startMillis + durationMs
             while (cursor < end) {
-                val boundary = Calendar.getInstance().apply {
-                    timeInMillis = cursor
-                    set(Calendar.MINUTE, 0)
-                    set(Calendar.SECOND, 0)
-                    set(Calendar.MILLISECOND, 0)
-                    add(Calendar.HOUR_OF_DAY, 1)
-                }.timeInMillis
-                val stop = minOf(end, boundary)
+                val instant = Instant.ofEpochMilli(cursor)
+                val local = instant.atZone(zone)
+                val nextHour = local.toLocalDateTime().truncatedTo(ChronoUnit.HOURS).plusHours(1)
+                    .toInstant(local.offset).toEpochMilli()
+                // An offset change can move the local clock before the next :00.
+                val transition = zone.rules.nextTransition(instant)?.instant?.toEpochMilli()
+                val stop = minOf(end, nextHour, transition ?: end)
                 result.add(UsageSlice(cursor, stop - cursor))
                 cursor = stop
             }

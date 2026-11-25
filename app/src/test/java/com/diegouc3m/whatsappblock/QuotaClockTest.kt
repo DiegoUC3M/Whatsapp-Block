@@ -4,6 +4,7 @@ import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
+import java.time.Instant
 import java.util.Calendar
 import java.util.TimeZone
 
@@ -48,6 +49,13 @@ class QuotaClockTest {
     @Test fun midnightSeparatesBothHourlyAndDailyBuckets() {
         val start = instant(23, 59, 59) + 800
         assertEquals(listOf(UsageSlice(start, 200), UsageSlice(start + 200, 800)),
+            QuotaClock(0, start).sample(1_000, start + 1_000))
+    }
+
+    @Test fun nextHourStartsOnTimeAfterAHalfHourDaylightSavingJump() {
+        TimeZone.setDefault(TimeZone.getTimeZone("Australia/Lord_Howe"))
+        val start = Instant.parse("2026-10-03T15:59:59.500Z").toEpochMilli()
+        assertEquals(listOf(UsageSlice(start, 500), UsageSlice(start + 500, 500)),
             QuotaClock(0, start).sample(1_000, start + 1_000))
     }
 
