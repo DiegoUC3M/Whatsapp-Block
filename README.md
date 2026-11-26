@@ -20,7 +20,7 @@ El tiempo de uso es una estimación con comprobaciones periódicas de aproximada
 
 Los nombres introducidos, reglas y contadores se guardan en el almacenamiento privado del teléfono. No hay permiso de Internet, publicidad, analítica, capturas de pantalla, lectura de mensajes ni importación de la agenda. Se eliminó la función experimental de avatares y se borran sus huellas antiguas al actualizar.
 
-Consulta la [política completa](PRIVACY.md), también incluida en la app sin conexión. La URL pública para la versión de esta rama es [Política de privacidad de Pausa de Chats](https://github.com/DiegoUC3M/Whatsapp-Block/blob/codex/play-store-preparation/PRIVACY.md).
+Consulta la [política completa](PRIVACY.md), también incluida en la app sin conexión. La URL pública es [Política de privacidad de Pausa de Chats](https://github.com/DiegoUC3M/Whatsapp-Block/blob/main/PRIVACY.md).
 
 El servicio necesita acceso a la estructura de la pantalla y al título del chat. Los identificadores de la interfaz de WhatsApp pueden cambiar: ante una pantalla que no reconoce, la app se abstiene de actuar. Dos chats con el mismo nombre mostrado pueden coincidir con la misma regla. Cambiar el nombre del chat requiere actualizar la regla. No se bloquea la recepción de mensajes o llamadas ni se modifica la cuenta de WhatsApp. No es un control parental ni una barrera que impida desactivar la app.
 

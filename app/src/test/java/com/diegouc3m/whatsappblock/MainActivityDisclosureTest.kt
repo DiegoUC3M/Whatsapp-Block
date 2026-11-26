@@ -116,6 +116,10 @@ class MainActivityDisclosureTest {
         assertTrue(text.contains("Conservación y borrado"))
         assertTrue(text.contains("Contacto de privacidad"))
         assertTrue(text.contains("Cambios de la política"))
+        assertEquals(
+            "https://github.com/DiegoUC3M/Whatsapp-Block/blob/main/PRIVACY.md",
+            policyActivity.getString(R.string.privacy_url)
+        )
         // Rendering the bundled policy starts no browser and makes no permission request.
         assertNull(shadowOf(policyActivity).nextStartedActivity)
     }

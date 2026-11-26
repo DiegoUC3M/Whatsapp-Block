@@ -38,7 +38,7 @@ Adapta las respuestas a los campos que muestre Play Console. Presenta un vídeo 
 
 ## Privacidad y Seguridad de los datos
 
-La política está incluida en la app y publicada en [esta URL pública](https://github.com/DiegoUC3M/Whatsapp-Block/blob/codex/play-store-preparation/PRIVACY.md). Comprueba que se puede abrir sin iniciar sesión antes de enviar. Mantén esta rama y su URL mientras la uses en la app y en Play Console; si cambias la URL, actualiza también `privacy_url` y los documentos.
+La política está incluida en la app y publicada en [esta URL pública](https://github.com/DiegoUC3M/Whatsapp-Block/blob/main/PRIVACY.md). Comprueba que se puede abrir sin iniciar sesión antes de enviar. Si cambias la URL en la app o en Play Console, actualiza también `privacy_url` y los documentos.
 
 Esta versión no transmite datos fuera del dispositivo ni incluye SDK de analítica/publicidad. Conforme a la definición de recopilación de Play, el procesamiento exclusivamente local permite responder que **no se recopilan ni comparten datos**. El aviso y la política explican de todos modos los datos consultados y almacenados localmente. Revisa estas respuestas si añades red, anuncios, diagnóstico remoto o cualquier SDK. La app no ofrece cuentas de usuario.
 

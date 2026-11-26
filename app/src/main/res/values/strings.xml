@@ -53,5 +53,5 @@
     <string name="data_deleted">Datos borrados. El bloqueo está detenido.</string>
     <string name="privacy_title">Política de privacidad</string>
     <string name="privacy_public_link">Ver política pública en el navegador</string>
-    <string name="privacy_url" translatable="false">https://github.com/DiegoUC3M/Whatsapp-Block/blob/codex/play-store-preparation/PRIVACY.md</string>
+    <string name="privacy_url" translatable="false">https://github.com/DiegoUC3M/Whatsapp-Block/blob/main/PRIVACY.md</string>
 </resources>
