@@ -1,6 +1,6 @@
 # Compilar Pausa de Chats
 
-Requisitos: JDK 17, Android SDK Platform 36 y Build Tools 35.0.0. El wrapper fija Gradle 8.14.5 y verifica el SHA-256 de la distribución; el proyecto usa AGP 8.13.1 y Kotlin 2.2.20.
+Requisitos: JDK 17, Android SDK Platform 36 y Build Tools 35.0.0. El wrapper fija Gradle 8.14.8 y verifica el SHA-256 de la distribución; el proyecto usa AGP 8.13.2 y Kotlin 2.3.21.
 
 Los workflows inicializan las herramientas y licencias del SDK con `android-actions/setup-android@v3` antes de instalar Platform 36 y Build Tools 35.0.0 mediante `sdkmanager`.
 
