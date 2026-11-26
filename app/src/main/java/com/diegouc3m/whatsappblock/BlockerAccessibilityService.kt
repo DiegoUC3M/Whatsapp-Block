@@ -1,348 +1,224 @@
 package com.diegouc3m.whatsappblock
 
 import android.accessibilityservice.AccessibilityService
-import android.os.Build
+import android.app.KeyguardManager
+import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
-import android.content.SharedPreferences
-import android.util.Log
+import android.os.PowerManager
+import android.os.SystemClock
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import androidx.core.content.ContextCompat
 
+/** Applies only the chat rules explicitly configured by the device's user. */
 class BlockerAccessibilityService : AccessibilityService() {
+    private data class Chat(val contact: String, val windowId: Int)
 
-    companion object {
-        private const val TAG = "WhatsAppBlocker"
-
-        /**
-         * Known resource IDs for the contact name in WhatsApp's conversation toolbar.
-         * This is the TextView that shows the contact/group name at the top of a chat.
-         */
-        private val CONVERSATION_TITLE_VIEW_IDS = setOf(
-            "com.whatsapp:id/conversation_contact_name",
-            "com.whatsapp.w4b:id/conversation_contact_name"
-        )
-
-        /** Cooldown to prevent rapid repeated back actions causing a loop. */
-        private const val BACK_ACTION_COOLDOWN_MS = 800L
-
-        /** How often the quota session ticker accumulates usage while a quota chat is open. */
-        private const val QUOTA_TICK_MS = 1_000L
-    }
-
-    private var cachedBlockedContacts: Set<String> = emptySet()
-    private var cachedAvatarHashesByContact: Map<String, Set<String>> = emptyMap()
-    private var cachedHasAnyAvatarHashes: Boolean = false
-    private var lastBackActionTime: Long = 0L
-    private val avatarMatcher = AvatarMatcher()
-
-    private var quotaSessionContact: String? = null
-    private var quotaSessionLastTick: Long = 0L
-    private val quotaHandler = Handler(Looper.getMainLooper())
-    private val quotaTicker = object : Runnable {
+    private var contacts: Set<String> = emptySet()
+    private var observedChat: Chat? = null
+    private var quotaClock: QuotaClock? = null
+    private var lastBackAt: Long? = null
+    private var receiverRegistered = false
+    private val handler = Handler(Looper.getMainLooper())
+    private val ticker = object : Runnable {
         override fun run() {
-            tickQuotaSession()
-            if (quotaSessionContact != null) {
-                quotaHandler.postDelayed(this, QUOTA_TICK_MS)
-            }
+            evaluateChat(fromTicker = true)
+            if (observedChat != null) handler.postDelayed(this, TICK_MS)
         }
     }
 
-    private val prefsListener =
-        SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
-            cachedBlockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
-            cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
-            cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
+    private val rulesListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        // Counter writes are observations, not configuration changes.
+        if (key == null || !isUsageCounterKey(key)) {
+            stopObserving()
+            contacts = BlockedContactsRepository.getBlockedContacts(this).toSet()
         }
+    }
+    private val consentListener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+        stopObserving()
+        if (!ConsentStore.hasConsent(this)) disableSelf()
+    }
+    private val interruptionReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) = stopObserving()
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        cachedBlockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
-        cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
-        cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
-        BlockedContactsRepository.registerListener(applicationContext, prefsListener)
-    }
-
-    override fun onDestroy() {
-        endQuotaSession()
-        BlockedContactsRepository.unregisterListener(applicationContext, prefsListener)
-        super.onDestroy()
+        BlockedContactsRepository.removeLegacyAvatarData(this)
+        contacts = BlockedContactsRepository.getBlockedContacts(this).toSet()
+        BlockedContactsRepository.registerListener(this, rulesListener)
+        ConsentStore.registerListener(this, consentListener)
+        if (!receiverRegistered) {
+            val filter = IntentFilter().apply {
+                addAction(Intent.ACTION_SCREEN_OFF)
+                addAction(Intent.ACTION_TIME_CHANGED)
+                addAction(Intent.ACTION_TIMEZONE_CHANGED)
+            }
+            ContextCompat.registerReceiver(
+                this, interruptionReceiver, filter, ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+            receiverRegistered = true
+        }
+        // Upgrades and enabling the Android service alone do not imply in-app consent.
+        if (!ConsentStore.hasConsent(this)) disableSelf()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent) {
-        val pkg = event.packageName?.toString() ?: return
-        if (pkg !in WhatsAppPackages.ALL) return
-        if (cachedBlockedContacts.isEmpty()) return
-
-        // React to window state changes (opening a chat) and content changes (re-entering a chat)
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
+        if (event.packageName?.toString() !in WhatsAppPackages.ALL) return
+        evaluateChat()
+    }
 
-        val root = rootInActiveWindow ?: return
-        try {
-            val fallbackByName = findBlockedContactInChat(root)
-            val pendingEnrollment = BlockedContactsRepository.getPendingAvatarEnrollmentContact(applicationContext)
-            val shouldAttemptAvatar = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-                (pendingEnrollment != null || cachedHasAnyAvatarHashes)
+    override fun onInterrupt() = stopObserving()
 
-            if (!shouldAttemptAvatar) {
-                maybeBlockContact(fallbackByName, "name")
-                return
+    override fun onDestroy() {
+        stopObserving()
+        BlockedContactsRepository.unregisterListener(this, rulesListener)
+        ConsentStore.unregisterListener(this, consentListener)
+        if (receiverRegistered) {
+            unregisterReceiver(interruptionReceiver)
+            receiverRegistered = false
+        }
+        super.onDestroy()
+    }
+
+    private fun canInspectNow(): Boolean = ChatSafety.canInspect(
+        consented = ConsentStore.hasConsent(this),
+        paused = ConsentStore.isPaused(this),
+        interactive = getSystemService(PowerManager::class.java).isInteractive,
+        locked = getSystemService(KeyguardManager::class.java).isKeyguardLocked
+    )
+
+    private fun evaluateChat(fromTicker: Boolean = false) {
+        if (!canInspectNow() || contacts.isEmpty()) {
+            stopObserving()
+            return
+        }
+        val chat = findVerifiedChat()
+        if (chat == null || !BlockedContactsRepository.isContactBlockingEnabled(this, chat.contact)) {
+            stopObserving()
+            return
+        }
+        if (observedChat != chat) {
+            stopObserving()
+            observedChat = chat
+            if (!fromTicker) handler.postDelayed(ticker, TICK_MS)
+        }
+
+        when (BlockedContactsRepository.getContactBlockMode(this, chat.contact)) {
+            BlockMode.SCHEDULE -> {
+                quotaClock = null
+                if (BlockedContactsRepository.isWithinScheduleForContact(this, chat.contact)) {
+                    performBlockBack(chat)
+                }
+                // Continue watching: a chosen schedule may start while the chat is open.
             }
-
-            val started = avatarMatcher.captureAvatarHash(this, root) { observedHash ->
-                runOnMainThread {
-                    if (!observedHash.isNullOrBlank()) {
-                        enrollPendingContactAvatarHash(pendingEnrollment, observedHash)
-                    }
-
-                    val avatarMatch = observedHash?.let {
-                        avatarMatcher.findBestMatch(it, cachedAvatarHashesByContact)
-                    }
-                    if (avatarMatch != null) {
-                        Log.d(
-                            TAG,
-                            "Avatar match: ${avatarMatch.contact} (distance=${avatarMatch.distance}, hash=${avatarMatch.observedHash})"
+            BlockMode.QUOTA -> {
+                val elapsed = SystemClock.elapsedRealtime()
+                val wall = System.currentTimeMillis()
+                val clock = quotaClock
+                if (clock == null) {
+                    quotaClock = QuotaClock(elapsed, wall)
+                } else {
+                    clock.sample(elapsed, wall).forEach { slice ->
+                        BlockedContactsRepository.addContactQuotaUsage(
+                            this, chat.contact, slice.durationMs, slice.atMillis
                         )
                     }
-                    val contactToBlock = avatarMatch?.contact ?: fallbackByName
-                    val reason = if (avatarMatch != null) "avatar" else "name"
-                    maybeBlockContact(contactToBlock, reason)
+                }
+                if (BlockedContactsRepository.isContactQuotaExceeded(this, chat.contact)) {
+                    performBlockBack(chat)
                 }
             }
+        }
+    }
 
-            if (!started) {
-                maybeBlockContact(fallbackByName, "name")
+    private fun performBlockBack(expected: Chat) {
+        val now = SystemClock.elapsedRealtime()
+        if (lastBackAt?.let { now - it < BACK_COOLDOWN_MS } == true) return
+        if (!canInspectNow() ||
+            expected.contact !in BlockedContactsRepository.getBlockedContacts(this) ||
+            !BlockedContactsRepository.isContactBlockingEnabled(this, expected.contact)) return
+        val shouldBlock = when (BlockedContactsRepository.getContactBlockMode(this, expected.contact)) {
+            BlockMode.SCHEDULE -> BlockedContactsRepository.isWithinScheduleForContact(this, expected.contact)
+            BlockMode.QUOTA -> BlockedContactsRepository.isContactQuotaExceeded(this, expected.contact)
+        }
+        // A queued event is insufficient: recheck the actual focused chat just before BACK.
+        if (!shouldBlock || findVerifiedChat() != expected) {
+            stopObserving()
+            return
+        }
+        lastBackAt = now
+        if (performGlobalAction(GLOBAL_ACTION_BACK)) stopObserving()
+    }
+
+    private fun stopObserving() {
+        observedChat = null
+        quotaClock = null
+        handler.removeCallbacks(ticker)
+        // Do not charge an unverified interval after leaving, locking, pausing or revoking.
+    }
+
+    private fun findVerifiedChat(): Chat? {
+        if (!canInspectNow()) return null
+        val root = try { rootInActiveWindow } catch (_: SecurityException) { null } ?: return null
+        try {
+            val pkg = root.packageName?.toString() ?: return null
+            if (pkg !in WhatsAppPackages.ALL) return null
+            val window = root.window ?: return null
+            try {
+                if (!window.isActive || !window.isFocused ||
+                    window.type != AccessibilityWindowInfo.TYPE_APPLICATION) return null
+                // Inspect IDs and visibility only. Never read the composer or message contents.
+                val hasComposer = hasVisibleNode(root, "$pkg:id/entry")
+                val title = visibleConversationTitle(root, "$pkg:id/conversation_contact_name")
+                val contact = ChatSafety.matchContact(
+                    pkg, window.isActive, window.isFocused,
+                    window.type == AccessibilityWindowInfo.TYPE_APPLICATION,
+                    title, hasComposer, contacts
+                ) ?: return null
+                return Chat(contact, root.windowId)
+            } finally {
+                window.recycle()
             }
         } finally {
             root.recycle()
         }
     }
 
-    private fun enrollPendingContactAvatarHash(pendingContact: String?, hash: String) {
-        val contact = pendingContact ?: return
-        val blockedContacts = BlockedContactsRepository.getBlockedContacts(applicationContext)
-        if (blockedContacts.none { it.equals(contact, ignoreCase = true) }) {
-            BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
-            return
-        }
-        val added = BlockedContactsRepository.addContactAvatarHash(applicationContext, contact, hash)
-        if (added) {
-            Log.d(TAG, "Enrolled avatar hash for $contact: $hash")
-            cachedAvatarHashesByContact = BlockedContactsRepository.getBlockedContactsAvatarHashes(applicationContext)
-            cachedHasAnyAvatarHashes = cachedAvatarHashesByContact.values.any { it.isNotEmpty() }
-        }
-        BlockedContactsRepository.setPendingAvatarEnrollmentContact(applicationContext, null)
-    }
-
-    private fun maybeBlockContact(contact: String?, reason: String) {
-        val blockingEnabled = contact != null &&
-            BlockedContactsRepository.isContactBlockingEnabled(applicationContext, contact)
-        if (contact == null || contact != quotaSessionContact || !blockingEnabled) {
-            endQuotaSession()
-        }
-        if (contact == null || !blockingEnabled) return
-        val blockedContact = contact
-
-        when (BlockedContactsRepository.getContactBlockMode(applicationContext, blockedContact)) {
-            BlockMode.SCHEDULE -> {
-                endQuotaSession()
-                if (!BlockedContactsRepository.isWithinScheduleForContact(applicationContext, blockedContact)) return
-                performBlockBack(blockedContact, reason)
-            }
-            BlockMode.QUOTA -> {
-                startQuotaSession(blockedContact)
-                flushQuotaUsage(blockedContact)
-                if (BlockedContactsRepository.isContactQuotaExceeded(applicationContext, blockedContact)) {
-                    endQuotaSession()
-                    performBlockBack(blockedContact, "$reason/quota")
-                }
-            }
+    private fun hasVisibleNode(root: AccessibilityNodeInfo, viewId: String): Boolean {
+        val nodes = root.findAccessibilityNodeInfosByViewId(viewId).orEmpty()
+        try {
+            return nodes.any { it.isVisibleToUser }
+        } finally {
+            nodes.forEach { it.recycle() }
         }
     }
 
-    private fun performBlockBack(blockedContact: String, reason: String) {
-        val now = System.currentTimeMillis()
-        if (now - lastBackActionTime > BACK_ACTION_COOLDOWN_MS) {
-            Log.d(TAG, "Blocked contact chat detected via $reason: $blockedContact — navigating back")
-            lastBackActionTime = now
-            performGlobalAction(GLOBAL_ACTION_BACK)
+    private fun visibleConversationTitle(root: AccessibilityNodeInfo, viewId: String): String? {
+        val nodes = root.findAccessibilityNodeInfosByViewId(viewId).orEmpty()
+        try {
+            return nodes.filter { it.isVisibleToUser }
+                .mapNotNull { it.text?.toString()?.takeIf(String::isNotBlank) }.singleOrNull()
+        } finally {
+            nodes.forEach { it.recycle() }
         }
     }
 
-    // --- Quota session tracking ---
+    private fun isUsageCounterKey(key: String): Boolean = listOf(
+        "contact_quota_used_ms_", "contact_quota_hour_stamp_",
+        "contact_daily_used_ms_", "contact_daily_day_stamp_"
+    ).any(key::startsWith)
 
-    /** Starts counting chat time for a quota-mode contact whose chat is currently open. */
-    private fun startQuotaSession(contact: String) {
-        if (quotaSessionContact == contact) return
-        endQuotaSession()
-        quotaSessionContact = contact
-        quotaSessionLastTick = System.currentTimeMillis()
-        quotaHandler.postDelayed(quotaTicker, QUOTA_TICK_MS)
-    }
-
-    /** Persists any pending chat time and stops the session ticker. */
-    private fun endQuotaSession() {
-        val contact = quotaSessionContact ?: return
-        quotaSessionContact = null
-        quotaHandler.removeCallbacks(quotaTicker)
-        flushQuotaUsage(contact)
-    }
-
-    /**
-     * Adds the time elapsed since the last tick to the contact's hourly usage counter.
-     * If the clock hour changed since the last tick, only the portion of the elapsed
-     * time that falls within the current hour is counted, so the reset at the hour
-     * change (e.g. 19:59 → 20:00) stays accurate.
-     */
-    private fun flushQuotaUsage(contact: String) {
-        val now = System.currentTimeMillis()
-        val last = quotaSessionLastTick
-        quotaSessionLastTick = now
-        val delta = now - maxOf(last, startOfCurrentHourMillis())
-        if (delta > 0) {
-            BlockedContactsRepository.addContactQuotaUsage(applicationContext, contact, delta)
-        }
-    }
-
-    private fun startOfCurrentHourMillis(): Long {
-        val cal = java.util.Calendar.getInstance()
-        cal.set(java.util.Calendar.MINUTE, 0)
-        cal.set(java.util.Calendar.SECOND, 0)
-        cal.set(java.util.Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
-    /**
-     * Periodic check while a quota chat is open: verifies the chat is still in the
-     * foreground, accumulates usage, and blocks once the hourly quota is spent.
-     */
-    private fun tickQuotaSession() {
-        val contact = quotaSessionContact ?: return
-
-        val root = rootInActiveWindow
-        val stillOpen = if (root == null) {
-            false
-        } else {
-            try {
-                val pkg = root.packageName?.toString()
-                pkg != null && pkg in WhatsAppPackages.ALL &&
-                    findBlockedContactInChat(root) == contact
-            } finally {
-                root.recycle()
-            }
-        }
-
-        if (!stillOpen) {
-            endQuotaSession()
-            return
-        }
-
-        flushQuotaUsage(contact)
-        if (BlockedContactsRepository.isContactQuotaExceeded(applicationContext, contact)) {
-            endQuotaSession()
-            performBlockBack(contact, "quota")
-        }
-    }
-
-    private fun runOnMainThread(action: () -> Unit) {
-        if (Looper.myLooper() == Looper.getMainLooper()) {
-            action()
-        } else {
-            Handler(Looper.getMainLooper()).post(action)
-        }
-    }
-
-    /**
-     * Finds a blocked contact name in the current chat screen.
-     * Returns the matched contact name or null if not in a blocked chat.
-     */
-    private fun findBlockedContactInChat(root: AccessibilityNodeInfo): String? {
-        // Strategy 1: Look for the known conversation_contact_name view ID
-        for (viewId in CONVERSATION_TITLE_VIEW_IDS) {
-            val nodes = root.findAccessibilityNodeInfosByViewId(viewId)
-            if (nodes != null) {
-                for (node in nodes) {
-                    try {
-                        val text = node.text?.toString()
-                        if (!text.isNullOrBlank()) {
-                            val matched = findMatchingBlockedContact(text)
-                            if (matched != null) return matched
-                        }
-                    } finally {
-                        node.recycle()
-                    }
-                }
-            }
-        }
-
-        // Strategy 2: Fallback — look for a toolbar-like container
-        return findBlockedContactInHeader(root)
-    }
-
-    /**
-     * Fallback detection: looks for the contact name in what appears to be
-     * a conversation header/toolbar area.
-     */
-    private fun findBlockedContactInHeader(root: AccessibilityNodeInfo): String? {
-        val actionBarIds = listOf(
-            "com.whatsapp:id/action_bar",
-            "com.whatsapp.w4b:id/action_bar",
-            "com.whatsapp:id/toolbar",
-            "com.whatsapp.w4b:id/toolbar"
-        )
-
-        for (barId in actionBarIds) {
-            val bars = root.findAccessibilityNodeInfosByViewId(barId)
-            if (bars != null) {
-                for (bar in bars) {
-                    try {
-                        val matched = findBlockedNameInToolbar(bar)
-                        if (matched != null) return matched
-                    } finally {
-                        bar.recycle()
-                    }
-                }
-            }
-        }
-        return null
-    }
-
-    /**
-     * Searches only within a toolbar/action bar node for a blocked contact name.
-     */
-    private fun findBlockedNameInToolbar(node: AccessibilityNodeInfo?): String? {
-        node ?: return null
-
-        val text = node.text?.toString()
-        if (!text.isNullOrBlank()) {
-            val matched = findMatchingBlockedContact(text)
-            if (matched != null) return matched
-        }
-
-        val desc = node.contentDescription?.toString()
-        if (!desc.isNullOrBlank()) {
-            val matched = findMatchingBlockedContact(desc)
-            if (matched != null) return matched
-        }
-
-        for (i in 0 until node.childCount) {
-            val child = node.getChild(i) ?: continue
-            try {
-                val matched = findBlockedNameInToolbar(child)
-                if (matched != null) return matched
-            } finally {
-                child.recycle()
-            }
-        }
-        return null
-    }
-
-    private fun findMatchingBlockedContact(text: String): String? {
-        return cachedBlockedContacts.firstOrNull { text.equals(it, ignoreCase = true) }
-    }
-
-    override fun onInterrupt() {
-        Log.d(TAG, "AccessibilityService interrupted")
+    companion object {
+        private const val TICK_MS = 1_000L
+        private const val BACK_COOLDOWN_MS = 800L
     }
 }

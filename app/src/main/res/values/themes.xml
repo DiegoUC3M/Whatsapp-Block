@@ -1,9 +1,9 @@
 <resources>
     <style name="Theme.WhatsappBlock" parent="Theme.MaterialComponents.DayNight.DarkActionBar">
-        <item name="colorPrimary">#075E54</item>
-        <item name="colorPrimaryVariant">#054D44</item>
+        <item name="colorPrimary">#3949AB</item>
+        <item name="colorPrimaryVariant">#283593</item>
         <item name="colorOnPrimary">#FFFFFF</item>
-        <item name="colorSecondary">#25D366</item>
+        <item name="colorSecondary">#FFB300</item>
         <item name="colorOnSecondary">#000000</item>
     </style>
 </resources>

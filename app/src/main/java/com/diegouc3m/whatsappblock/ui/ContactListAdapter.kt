@@ -24,12 +24,21 @@ class ContactListAdapter(
         const val USAGE_TICK_MS = 1_000L
     }
 
-    data class ContactItem(
-        val name: String,
-        val avatarHashes: List<String>
-    )
+    data class ContactItem(val name: String)
 
     private val expandedContacts = mutableSetOf<String>()
+    private val visibleHolders = mutableSetOf<ViewHolder>()
+    private var usageUpdatesActive = true
+
+    fun pauseUsageUpdates() {
+        usageUpdatesActive = false
+        visibleHolders.forEach { it.stopUsageTicker() }
+    }
+
+    fun resumeUsageUpdates() {
+        usageUpdatesActive = true
+        visibleHolders.forEach { it.resumeUsageTicker() }
+    }
 
     fun submitSortedList(list: List<ContactItem>) {
         submitList(list.sortedBy { it.name.lowercase() })
@@ -47,8 +56,21 @@ class ContactListAdapter(
     }
 
     override fun onViewRecycled(holder: ViewHolder) {
+        visibleHolders.remove(holder)
         holder.stopUsageTicker()
         super.onViewRecycled(holder)
+    }
+
+    override fun onViewAttachedToWindow(holder: ViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        visibleHolders.add(holder)
+        holder.resumeUsageTicker()
+    }
+
+    override fun onViewDetachedFromWindow(holder: ViewHolder) {
+        visibleHolders.remove(holder)
+        holder.stopUsageTicker()
+        super.onViewDetachedFromWindow(holder)
     }
 
     inner class ViewHolder(private val binding: ItemContactBinding) :
@@ -56,18 +78,14 @@ class ContactListAdapter(
 
         private var groupAdapter: ScheduleGroupAdapter? = null
         private var usageTicker: Runnable? = null
+        private var boundContact: String? = null
 
         fun bind(item: ContactItem) {
             val context = binding.root.context
             val name = item.name
+            boundContact = name
             binding.tvContactName.text = name
             binding.btnDelete.setOnClickListener { onDelete(name) }
-            val avatarHashes = item.avatarHashes
-            binding.tvAvatarHashes.text = if (avatarHashes.isEmpty()) {
-                context.getString(R.string.avatar_hashes_none)
-            } else {
-                context.getString(R.string.avatar_hashes_label, avatarHashes.joinToString(", "))
-            }
 
             // Expand/collapse
             val isExpanded = name in expandedContacts
@@ -217,6 +235,7 @@ class ContactListAdapter(
         /** Starts a once-per-second refresh of the usage counters while the item is expanded. */
         private fun startUsageTicker(contact: String) {
             stopUsageTicker()
+            if (!usageUpdatesActive) return
             val runnable = object : Runnable {
                 override fun run() {
                     updateUsageCounters(contact)
@@ -230,6 +249,10 @@ class ContactListAdapter(
         fun stopUsageTicker() {
             usageTicker?.let { binding.root.removeCallbacks(it) }
             usageTicker = null
+        }
+
+        fun resumeUsageTicker() {
+            boundContact?.takeIf { it in expandedContacts }?.let { startUsageTicker(it) }
         }
 
         private fun refreshGroups(contact: String) {
